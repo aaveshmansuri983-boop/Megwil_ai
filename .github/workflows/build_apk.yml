@@ -41,10 +41,36 @@ jobs:
           JARVIS_OWNER_GMAIL: ${{ secrets.JARVIS_OWNER_GMAIL }}
         run: gradle assembleDebug --no-daemon
 
-      - name: Upload APK artifact
+      - name: Boot cloud Android emulator and smoke-test MEGWIL
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -e
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am force-stop com.megwil.ai || true
+            adb shell am start -W -n com.megwil.ai/.MainActivity
+            sleep 8
+            adb shell pidof com.megwil.ai
+            adb shell screencap -p /sdcard/megwil-home.png
+            adb pull /sdcard/megwil-home.png megwil-home.png
+            adb logcat -d -t 3000 > megwil-logcat.txt
+            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" megwil-logcat.txt; then
+              exit 1
+            fi
+
+      - name: Upload APK and cloud phone test evidence
         uses: actions/upload-artifact@v4
         with:
-          name: MegwilAI-Debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MegwilAI-Cloud-Test
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            megwil-home.png
+            megwil-logcat.txt
           if-no-files-found: error
           retention-days: 14
