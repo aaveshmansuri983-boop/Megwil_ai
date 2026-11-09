@@ -264,6 +264,82 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
         val lower = question.trim().lowercase(Locale.ROOT)
 
+        // Live device date and time; computed on demand so the answer is current.
+        if (listOf("what time", "time now", "current time", "kitne baje", "abhi time", "samay batao", "समय बताओ", "कितने बजे").any { lower.contains(it) }) {
+            val now = java.util.Date()
+            val time = java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(now)
+            val date = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(now)
+            done("Abhi $time hai. Aaj $date hai.")
+            return
+        }
+        if (listOf("today's date", "todays date", "date today", "aaj ki date", "aaj ki tarikh", "आज की तारीख", "तारीख बताओ").any { lower.contains(it) }) {
+            val date = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(java.util.Date())
+            done("Aaj $date hai.")
+            return
+        }
+
+        // Battery level and charging state from Android's sticky battery broadcast.
+        if (listOf("battery", "charge kitna", "charging status", "बैटरी", "चार्ज कितना").any { lower.contains(it) }) {
+            val battery = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            if (battery == null) { done("Battery status abhi read nahi ho paya."); return }
+            val level = battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+            val scale = battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+            val status = battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
+            if (level < 0 || scale <= 0) { done("Battery percentage available nahi hai."); return }
+            val percent = (level * 100 / scale)
+            val charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+            done("Battery $percent percent hai. " + if (charging) "Phone charging par hai." else "Phone abhi charging par nahi hai.")
+            return
+        }
+
+        // Relative voice reminder: hand scheduling to Android Clock for user confirmation.
+        val relativeReminder = Regex(
+            "(?:remind me in|remind me after|mujhe)\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|hours?|घंटे?|मिनट|सेकंड)\\s*(?:baad|to|ki)?\\s*(.*)",
+            RegexOption.IGNORE_CASE
+        ).find(question.trim())
+        if (relativeReminder != null && (lower.contains("remind") || lower.contains("yaad dilana") || lower.startsWith("mujhe "))) {
+            val amount = relativeReminder.groupValues[1].toIntOrNull() ?: 0
+            val unit = relativeReminder.groupValues[2].lowercase(Locale.ROOT)
+            val task = relativeReminder.groupValues[3].replace(Regex("(?i)^(to|ki|yaad dilana)\\s*"), "").trim()
+            val seconds = when {
+                unit.startsWith("hour") || unit.startsWith("घंटा") -> amount * 3600
+                unit.startsWith("min") || unit.startsWith("मिनट") -> amount * 60
+                else -> amount
+            }
+            if (amount <= 0 || seconds <= 0) { done("Reminder ka time valid nahi hai."); return }
+            try {
+                startActivity(Intent(android.provider.AlarmClock.ACTION_SET_TIMER)
+                    .putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, if (task.isBlank()) "MEGWIL reminder" else "MEGWIL: $task")
+                    .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false))
+                done("Reminder timer ready hai: $amount $unit" + if (task.isBlank()) ". Clock app mein confirm kar dena." else " baad: $task. Clock app mein confirm kar dena.")
+            } catch (_: Exception) { done("Is phone par Clock reminder/timer available nahi hai.") }
+            return
+        }
+        val timedReminder = Regex(
+            "(?:remind me at|reminder at|mujhe)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\s*(?:to|ki)?\\s*(.*)",
+            RegexOption.IGNORE_CASE
+        ).find(question.trim())
+        if (timedReminder != null && (lower.contains("remind") || lower.contains("reminder") || lower.contains("yaad"))) {
+            var hour = timedReminder.groupValues[1].toIntOrNull() ?: -1
+            val minute = timedReminder.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: 0
+            val meridiem = timedReminder.groupValues[3].lowercase(Locale.ROOT)
+            if (meridiem == "pm" && hour in 1..11) hour += 12
+            if (meridiem == "am" && hour == 12) hour = 0
+            if (hour !in 0..23 || minute !in 0..59) { done("Reminder ka time valid nahi hai."); return }
+            val task = timedReminder.groupValues[4].trim().ifBlank { "MEGWIL reminder" }
+            try {
+                startActivity(Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+                    .putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "MEGWIL: $task")
+                    .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false))
+                done("Reminder alarm ready hai: " + hour + ":" + minute.toString().padStart(2, '0') + " — " + task + ". Clock app mein save confirm kar dena.")
+            } catch (_: Exception) { done("Is phone par alarm/reminder app available nahi hai.") }
+            return
+        }
+
         // Save only facts the user explicitly asks MEGWIL to remember.
         if (lower.startsWith("remember ") || lower.startsWith("yaad rakhna ") || lower.startsWith("याद रखना ")) {
             val fact = Regex("(?i)^(remember|yaad\\s+rakhna|याद\\s+रखना)\\s+").replaceFirst(question.trim(), "").trim()
