@@ -1,0 +1,111 @@
+name: Build MEGWIL JARVIS Android Port
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Gradle 8.6
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.6-bin.zip -O /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.6/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Android SDK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Prepare isolated Android port from additive source
+        id: prepare
+        run: |
+          bash scripts/prepare_android_port.sh
+          echo "project=$RUNNER_TEMP/megwil-jarvis-android/open-jarvis-main" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: gradle -p "${{ steps.prepare.outputs.project }}" assembleDebug --no-daemon
+
+      - name: Package APK as a one-download ZIP
+        run: |
+          mkdir -p dist
+          cp "${{ steps.prepare.outputs.project }}/app/build/outputs/apk/debug/app-debug.apk" dist/MEGWIL-JARVIS.apk
+          cat > dist/INSTALL.txt <<'EOF'
+          MEGWIL JARVIS Android test build
+          
+          Install MEGWIL-JARVIS.apk on Android 8.0 or later.
+          On first launch, grant only the permissions needed for the features you enable.
+          Accessibility and overlay access are optional and require explicit user activation.
+          
+          This is an Android adaptation of the MEGWIL additive Android source.
+          Linux-only Project JARVIS kernel interfaces (/dev/jarvis, jarvis.ko, /sys/class/misc/jarvis)
+          are not part of this APK and require Android-native alternatives.
+          EOF
+          sha256sum dist/MEGWIL-JARVIS.apk > dist/SHA256SUMS.txt
+          (cd dist && zip -9 ../MEGWIL-JARVIS-Android.zip MEGWIL-JARVIS.apk INSTALL.txt SHA256SUMS.txt)
+          test -s MEGWIL-JARVIS-Android.zip
+
+      - name: Upload installable APK ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: MEGWIL-JARVIS-Android-ZIP
+          path: MEGWIL-JARVIS-Android.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Run unit tests
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: gradle -p "${{ steps.prepare.outputs.project }}" testDebugUnitTest --no-daemon
+
+      - name: Emulator smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -eu
+            APK="${{ steps.prepare.outputs.project }}/app/build/outputs/apk/debug/app-debug.apk"
+            adb wait-for-device
+            adb install -r "$APK"
+            adb shell am force-stop com.megwil.ai || true
+            adb shell am start -n com.megwil.ai/.ui.MainActivity
+            for attempt in $(seq 1 15); do
+              if adb shell pidof com.megwil.ai | tr -d '\r' | grep -q '[0-9]'; then break; fi
+              sleep 2
+            done
+            adb shell pidof com.megwil.ai
+            adb logcat -d -t 5000 > megwil-jarvis-logcat.txt
+            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" megwil-jarvis-logcat.txt; then exit 1; fi
+
+      - name: Upload emulator logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MEGWIL-JARVIS-Android-Test-Logs
+          path: megwil-jarvis-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 14
