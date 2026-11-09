@@ -2,7 +2,7 @@ name: Build MEGWIL AI APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feature/phone-control-long-memory" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
