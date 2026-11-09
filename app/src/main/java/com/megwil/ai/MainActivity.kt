@@ -1,4 +1,4 @@
-package com.megwil.ai
+package com.megwil
 
 import android.Manifest
 import android.content.Intent
@@ -37,11 +37,11 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
-import com.megwil.ai.data.GroqApiClient
-import com.megwil.ai.data.GroqRequest
-import com.megwil.ai.data.Message
-import com.megwil.ai.ui.dashboard.OwnerDashboardActivity
-import com.megwil.ai.ui.theme.MegwilAITheme
+import com.megwil.data.GroqApiClient
+import com.megwil.data.GroqRequest
+import com.megwil.data.Message
+import com.megwil.ui.dashboard.OwnerDashboardActivity
+import com.megwil.ui.theme.MegwilAITheme
 import kotlinx.coroutines.launch
 import java.util.Locale
 import com.google.gson.Gson
@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     onWakeWordToggle = { enabled, reportState ->
                         pendingWakeWordStateCallback = reportState
-                        val serviceIntent = Intent(this, com.megwil.ai.service.WakeWordService::class.java)
+                        val serviceIntent = Intent(this, com.megwil.service.WakeWordService::class.java)
                         if (!enabled) {
                             stopService(serviceIntent)
                             reportState(false)
@@ -184,7 +184,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
                 } else {
                     try {
-                        ContextCompat.startForegroundService(this, Intent(this, com.megwil.ai.service.WakeWordService::class.java))
+                        ContextCompat.startForegroundService(this, Intent(this, com.megwil.service.WakeWordService::class.java))
                         pendingWakeWordStateCallback?.invoke(true)
                     } catch (_: Exception) {
                         pendingWakeWordStateCallback?.invoke(false)
@@ -201,7 +201,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (requestCode == 504) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
                 try {
-                    ContextCompat.startForegroundService(this, Intent(this, com.megwil.ai.service.WakeWordService::class.java))
+                    ContextCompat.startForegroundService(this, Intent(this, com.megwil.service.WakeWordService::class.java))
                     pendingWakeWordStateCallback?.invoke(true)
                 } catch (_: Exception) {
                     pendingWakeWordStateCallback?.invoke(false)
