@@ -108,6 +108,32 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 )
             }
         }
+        if (intent?.getBooleanExtra(EXTRA_WAKE_WORD, false) == true) {
+            window.decorView.post { startWakeWordConversation() }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.getBooleanExtra(EXTRA_WAKE_WORD, false) == true) {
+            startWakeWordConversation()
+        }
+    }
+
+    private fun startWakeWordConversation() {
+        speak("Haan, boliye. MEGWIL sun raha hai.")
+        listen { spoken ->
+            if (spoken.startsWith("Voice input", true) || spoken.startsWith("Microphone", true)) {
+                speak(spoken)
+                return@listen
+            }
+            val previous = loadHistory()
+            askMegwil(spoken, previous) { reply ->
+                saveHistory(previous + Message("user", spoken) + Message("assistant", reply))
+                speak(reply)
+            }
+        }
     }
 
     private fun loadHistory(): List<Message> {
@@ -244,8 +270,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (fact.isBlank()) { done("Kya yaad rakhna hai?"); return }
             val facts = prefs.getStringSet("long_term_memory", emptySet())?.toMutableSet() ?: mutableSetOf()
             facts.add(fact)
+            while (facts.size > 100) facts.remove(facts.first())
             prefs.edit().putStringSet("long_term_memory", facts).apply()
             done("Theek hai, maine ye baat is phone mein yaad rakh li: " + fact)
+            return
+        }
+        val forgetPrefix = listOf("forget ", "bhool jao ", "ye baat bhool jao ").firstOrNull { lower.startsWith(it) }
+        if (forgetPrefix != null) {
+            val target = question.trim().substring(forgetPrefix.length).trim()
+            if (target.isBlank()) { done("Kaunsi baat memory se hatani hai?"); return }
+            val facts = prefs.getStringSet("long_term_memory", emptySet())?.toMutableSet() ?: mutableSetOf()
+            val removed = facts.removeAll { it.equals(target, ignoreCase = true) }
+            prefs.edit().putStringSet("long_term_memory", facts).apply()
+            done(if (removed) "Theek hai, ye baat local memory se hata di." else "Ye baat saved memory mein nahi mili.")
             return
         }
         if (lower.contains("what do you remember") || lower.contains("tumhe kya yaad") || lower.contains("meri memory dikhao") || lower.contains("yaad kya hai")) {
@@ -506,6 +543,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 android.widget.Toast.makeText(this, "Google sign-in failed: ${e.statusCode}", android.widget.Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_WAKE_WORD = "com.megwil.extra.WAKE_WORD"
     }
 
     override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
