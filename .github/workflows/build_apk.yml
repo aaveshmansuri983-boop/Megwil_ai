@@ -51,15 +51,46 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim
           disable-animations: true
           script: |
-            set -e
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            set -euo pipefail
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+            test -s "$APK"
+
+            adb wait-for-device
+            adb install -r "$APK"
             adb shell am force-stop com.megwil.ai || true
-            adb shell am start -W -n com.megwil.ai/.MainActivity
-            sleep 8
+            adb shell am start -n com.megwil.ai/.MainActivity
+
+            # Give Android time to render the first screen without blocking on
+            # ActivityManager's occasionally unreliable -W launch timeout.
+            for attempt in $(seq 1 12); do
+              if adb shell pidof com.megwil.ai | tr -d '\r' | grep -q '[0-9]'; then
+                break
+              fi
+              sleep 2
+            done
             adb shell pidof com.megwil.ai
-            adb shell screencap -p /sdcard/megwil-home.png
-            adb pull /sdcard/megwil-home.png megwil-home.png
-            adb logcat -d -t 3000 > megwil-logcat.txt
+
+            # Re-establish the emulator transport before capturing evidence.
+            adb reconnect device || true
+            adb wait-for-device
+            adb shell input keyevent 82 || true
+            sleep 3
+
+            # Stream the screenshot directly to the runner; retry transient ADB drops.
+            captured=false
+            for attempt in 1 2 3; do
+              if adb exec-out screencap -p > megwil-home.png && test -s megwil-home.png; then
+                captured=true
+                break
+              fi
+              adb reconnect device || true
+              sleep 3
+              adb wait-for-device
+            done
+            test "$captured" = true
+            file megwil-home.png
+
+            adb logcat -d -t 5000 > megwil-logcat.txt
             if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" megwil-logcat.txt; then
               exit 1
             fi
