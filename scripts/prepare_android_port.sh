@@ -34,6 +34,13 @@ sed -i 's/\.MainActivity/\.ui.MainActivity/' "$PROJECT/app/src/main/AndroidManif
 sed -i 's/Theme\.OpenJarvis/Theme.Megwil/g' "$PROJECT/app/src/main/AndroidManifest.xml"
 sed -i 's/Theme\.OpenJarvis/Theme.Megwil/g; s/Theme\.Material3\.Light\.NoActionBar/Theme.AppCompat.DayNight.NoActionBar/' "$PROJECT/app/src/main/res/values/themes.xml"
 
+cat > "$PROJECT/gradle.properties" <<'PROPS'
+android.useAndroidX=true
+android.nonTransitiveRClass=true
+org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+kotlin.code.style=official
+PROPS
+
 mkdir -p "$PROJECT/app/src/main/java/com/megwil/ai/ui/theme"
 cat > "$PROJECT/app/src/main/java/com/megwil/ai/ui/theme/Theme.kt" <<'KOTLIN'
 package com.megwil.ai.ui.theme
