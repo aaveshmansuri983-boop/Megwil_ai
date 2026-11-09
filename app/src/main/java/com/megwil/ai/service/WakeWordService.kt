@@ -110,8 +110,13 @@ class WakeWordService : Service() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val stop = PendingIntent.getService(
+            this, 2, Intent(this, WakeWordService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_megwil_foreground)
+            .addAction(android.R.drawable.ic_media_pause, "Stop listening", stop)
             .setContentTitle("MEGWIL wake word active")
             .setContentText(message)
             .setContentIntent(open)
