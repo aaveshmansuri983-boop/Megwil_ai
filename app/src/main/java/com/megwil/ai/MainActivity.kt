@@ -283,12 +283,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (lower.startsWith("open ") || lower.startsWith("kholo ")) {
             val target = lower.removePrefix("open ").removePrefix("kholo ").trim()
             val app = appMap.firstOrNull { target.contains(it.first) }
-            if (app != null) {
-                val launch = packageManager.getLaunchIntentForPackage(app.second)
-                if (launch != null) { startActivity(launch); done(app.first + " khol diya."); }
-                else done(app.first + " phone mein nahi mila.")
+            val knownLaunch = app?.let { packageManager.getLaunchIntentForPackage(it.second) }
+            if (knownLaunch != null) {
+                startActivity(knownLaunch)
+                done(app!!.first + " khol diya.")
                 return
             }
+            val installedMatch = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                .firstOrNull { info ->
+                    val label = packageManager.getApplicationLabel(info).toString().lowercase(Locale.ROOT)
+                    label == target || (target.length >= 3 && label.contains(target))
+                }
+            val anyLaunch = installedMatch?.let { packageManager.getLaunchIntentForPackage(it.packageName) }
+            if (anyLaunch != null) {
+                startActivity(anyLaunch)
+                done(packageManager.getApplicationLabel(installedMatch!!).toString() + " khol diya.")
+            } else {
+                done("Is naam ka launchable app nahi mila: " + target)
+            }
+            return
         }
         val cmd = Regex("^(.+?) ko (whatsapp(?: par)? )?(call(?: karo)?|message(?: bhejo)?|msg(?: bhejo)?|phone lagao)[: ]*(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
         if (cmd != null) {
