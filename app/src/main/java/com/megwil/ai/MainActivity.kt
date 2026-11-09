@@ -251,15 +251,10 @@ private fun MegwilScreen(
             TextButton(onClick = { showSettings = !showSettings }) { Text("SETTINGS", color = Cyan) }
         }
         Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(164.dp).background(Color(0xFF101C2C), RoundedCornerShape(22.dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().height(224.dp).background(Color(0xFF050D19), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(104.dp).background(Cyan.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(78.dp).background(Color(0xFF0B2635), CircleShape), contentAlignment = Alignment.Center) {
-                        Text("M", color = Cyan, fontSize = 42.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(if (busy) "THINKING..." else if (listening) "LISTENING..." else "MEGWIL • READY", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                RobotReactor(mode = if (listening) "LISTENING" else if (busy) "SPEAKING" else "READY")
+                Text(if (busy) "MEGWIL IS THINKING..." else if (listening) "I'M LISTENING..." else "MEGWIL • READY", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
         if (showSettings) {
@@ -318,6 +313,7 @@ private fun MegwilScreen(
                         input = ""; busy = true
                         onAsk(q, history.toList()) { result ->
                             answer = result
+                            onSpeak(result)
                             history.add(Message("assistant", result))
                             onHistoryChanged(history.toList())
                             busy = false

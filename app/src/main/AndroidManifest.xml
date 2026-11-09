@@ -10,6 +10,8 @@
         android:name=".MegwilApp"
         android:allowBackup="false"
         android:label="MEGWIL AI"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".ui.dashboard.OwnerDashboardActivity" android:exported="false" />
