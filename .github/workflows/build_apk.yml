@@ -37,6 +37,8 @@ jobs:
       - name: Build debug APK
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
+          GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+          JARVIS_OWNER_GMAIL: ${{ secrets.JARVIS_OWNER_GMAIL }}
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK artifact

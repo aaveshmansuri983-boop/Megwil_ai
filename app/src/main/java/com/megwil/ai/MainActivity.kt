@@ -45,7 +45,7 @@ private val Cyan = Color(0xFF00E5FF)
 private val Navy = Color(0xFF070B14)
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
-    private val ownerEmail = "aaveshmansuri983@gmail.com"
+    private val ownerEmail = BuildConfig.OWNER_EMAIL
     private lateinit var prefs: SharedPreferences
     private var tts: TextToSpeech? = null
     private var speechRecognizer: SpeechRecognizer? = null
@@ -125,7 +125,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startGoogleLogin() {
-        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().build()
+        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+        if (webClientId.isBlank()) {
+            android.widget.Toast.makeText(this, "Google OAuth Client ID workflow secret mein configure nahi hai.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestIdToken(webClientId)
+            .build()
         startActivityForResult(GoogleSignIn.getClient(this, options).signInIntent, 100)
     }
 
