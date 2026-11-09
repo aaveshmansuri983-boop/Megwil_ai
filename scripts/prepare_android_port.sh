@@ -32,7 +32,9 @@ fi
 sed -i "s/namespace 'com\.openjarvis'/namespace 'com.megwil.ai'/; s/applicationId \"com\.megwil\"/applicationId \"com.megwil.ai\"/; s/versionName \"1\.0\.1\"/versionName \"1.2.0\"/; s/versionCode 2/versionCode 3/" "$PROJECT/app/build.gradle"
 sed -i 's/\.MainActivity/\.ui.MainActivity/' "$PROJECT/app/src/main/AndroidManifest.xml"
 sed -i 's/Theme\.OpenJarvis/Theme.Megwil/g' "$PROJECT/app/src/main/AndroidManifest.xml"
-sed -i 's/Theme\.OpenJarvis/Theme.Megwil/g; s/Theme\.Material3\.Light\.NoActionBar/Theme.AppCompat.DayNight.NoActionBar/' "$PROJECT/app/src/main/res/values/themes.xml"
+sed -i 's/Theme\.OpenJarvis/Theme.Megwil/g; s/Theme\.Material3\.Light\.NoActionBar/Theme.MaterialComponents.DayNight.NoActionBar/; s/Theme\.AppCompat\.DayNight\.NoActionBar/Theme.MaterialComponents.DayNight.NoActionBar/' "$PROJECT/app/src/main/res/values/themes.xml"
+# Material Components supplies the XML theme attributes used by themes.xml.
+sed -i "/implementation 'androidx.appcompat:appcompat:1.6.1'/a\\    implementation 'com.google.android.material:material:1.12.0'" "$PROJECT/app/build.gradle"
 
 cat > "$PROJECT/gradle.properties" <<'PROPS'
 android.useAndroidX=true
