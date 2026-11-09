@@ -53,7 +53,13 @@ jobs:
           add_cfg("use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};")
           add_cfg("use tauri_plugin_autostart::ManagerExt;")
           add_cfg('const TRAY_ID: &str = "main-tray";')
-          s = s.replace("        .decorations(false)\\n", "")
+          # Remove the desktop-only window decoration call from the Android build copy.
+          decorations_pattern = re.compile(r"(?m)^[ \t]*\.decorations\(false\)[ \t]*\r?\n")
+          if not decorations_pattern.search(s):
+              raise SystemExit("Desktop-only decorations(false) call not found")
+          s, removed = decorations_pattern.subn("", s, count=1)
+          if removed != 1:
+              raise SystemExit("Expected to remove exactly one decorations(false) call")
 
           # This script patches only the Android build copy; remove desktop-only widget-window APIs.
           for desktop_method in ("        .always_on_top(true)\n", "        .skip_taskbar(true)\n"):
@@ -61,10 +67,22 @@ jobs:
                   raise SystemExit("Expected desktop-only widget method not found: " + desktop_method.strip())
               s = s.replace(desktop_method, "", 1)
 
-          tray_tooltip_pattern = re.compile(r"(?m)^fn set_tray_tooltip\(")
-          if not tray_tooltip_pattern.search(s):
+          tray_tooltip_pattern = re.compile(r"(?ms)^fn set_tray_tooltip\([^\n]*\) \{\n.*?^\}")
+          tooltip_match = tray_tooltip_pattern.search(s)
+          if not tooltip_match:
               raise SystemExit("Tray tooltip function not found")
-          s = tray_tooltip_pattern.sub('#[cfg(not(target_os = "android"))]\nfn set_tray_tooltip(', s, count=1)
+          desktop_tooltip_fn = tooltip_match.group(0)
+          android_tooltip_stub = (
+              '\n#[cfg(target_os = "android")]\n'
+              'fn set_tray_tooltip(_app: &AppHandle, _tooltip: &str) {}\n'
+          )
+          s = (
+              s[:tooltip_match.start()]
+              + '#[cfg(not(target_os = "android"))]\n'
+              + desktop_tooltip_fn
+              + android_tooltip_stub
+              + s[tooltip_match.end():]
+          )
 
           picker = re.compile(r"#\[tauri::command\]\s*async fn pick_widget_appearance_folder\(.*?\n\}", re.S)
           m = picker.search(s)
