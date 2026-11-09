@@ -1,4 +1,4 @@
-package com.megwil.ai.service
+package com.megwil.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -15,8 +15,8 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.core.app.NotificationCompat
-import com.megwil.ai.MainActivity
-import com.megwil.ai.R
+import com.megwil.MainActivity
+import com.megwil.R
 import java.util.Locale
 
 /**
@@ -154,7 +154,7 @@ class WakeWordService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_STOP = "com.megwil.ai.action.STOP_WAKE_WORD"
+        const val ACTION_STOP = "com.megwil.action.STOP_WAKE_WORD"
         private const val CHANNEL_ID = "megwil_wake_word"
         private const val NOTIFICATION_ID = 7101
         private const val WAKE_NOTIFICATION_ID = 7102
