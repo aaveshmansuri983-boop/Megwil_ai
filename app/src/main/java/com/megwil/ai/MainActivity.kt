@@ -77,10 +77,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun loadHistory(): List<Message> = try {
-        val raw = prefs.getString("chat_history", null) ?: return emptyList()
-        Gson().fromJson(raw, object : TypeToken<List<Message>>() {}.type) ?: emptyList()
-    } catch (_: Exception) { emptyList() }
+    private fun loadHistory(): List<Message> {
+        return try {
+            val raw = prefs.getString("chat_history", null) ?: return emptyList()
+            Gson().fromJson(raw, object : TypeToken<List<Message>>() {}.type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+    }
 
     private fun saveHistory(history: List<Message>) {
         prefs.edit().putString("chat_history", Gson().toJson(history.takeLast(100))).apply()
