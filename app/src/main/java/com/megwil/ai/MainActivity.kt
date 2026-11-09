@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     onSpeak = { speak(it) },
                     onListen = { callback -> listen(callback) },
                     onGoogleLogin = { startGoogleLogin() },
-                    onDashboard = { startActivity(Intent(this, OwnerDashboardActivity::class.java)) },
+                    onDashboard = {\n                        val signedIn = GoogleSignIn.getLastSignedInAccount(this)?.email\n                        if (signedIn.equals(ownerEmail, ignoreCase = true)) startActivity(Intent(this, OwnerDashboardActivity::class.java)) else startGoogleLogin()\n                    },
                     onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 )
             }
