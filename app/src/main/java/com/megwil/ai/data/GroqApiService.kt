@@ -1,4 +1,4 @@
-package com.megwil.ai.data
+package com.megwil.data
 
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
