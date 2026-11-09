@@ -53,7 +53,34 @@ jobs:
           add_cfg("use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};")
           add_cfg("use tauri_plugin_autostart::ManagerExt;")
           add_cfg('const TRAY_ID: &str = "main-tray";')
-          s = s.replace("        .decorations(false)\n", "")
+          s = s.replace("        .decorations(false)\\n", "")
+
+          # Desktop-only window decorations are unavailable in Tauri Android.
+          widget_builder_old = \'\'\'    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+                  .title(&manifest.name)
+                  .inner_size(160.0, 160.0)
+                  .transparent(true)
+                  .always_on_top(true)
+                  .skip_taskbar(true)
+                  .resizable(false);\'\'\'
+          widget_builder_new = \'\'\'    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+                  .title(&manifest.name)
+                  .inner_size(160.0, 160.0)
+                  .transparent(true);
+              #[cfg(not(target_os = "android"))]
+              {
+                  builder = builder.always_on_top(true).skip_taskbar(true);
+              }
+              builder = builder.resizable(false);\'\'\'
+          if widget_builder_old not in s:
+              raise SystemExit("Widget window builder block not found")
+          s = s.replace(widget_builder_old, widget_builder_new, 1)
+
+          # Tray tooltip API and tray identifier are desktop-only.
+          tray_tooltip_pattern = re.compile(r"(?m)^fn set_tray_tooltip\\(")
+          if not tray_tooltip_pattern.search(s):
+              raise SystemExit("Tray tooltip function not found")
+          s = tray_tooltip_pattern.sub('#[cfg(not(target_os = "android"))]\\nfn set_tray_tooltip(', s, count=1)
 
           picker = re.compile(r"#\[tauri::command\]\s*async fn pick_widget_appearance_folder\(.*?\n\}", re.S)
           m = picker.search(s)
