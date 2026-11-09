@@ -196,7 +196,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 pendingContactCommand = question
                 pendingContactCallback = done
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 502)
-                done("Contacts permission maangi gayi hai. Allow karte hi command dobara process hogi.")
                 return
             }
             val numbers = findContactNumbers(who)
