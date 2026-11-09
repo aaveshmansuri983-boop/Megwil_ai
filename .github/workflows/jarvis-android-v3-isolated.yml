@@ -1,0 +1,67 @@
+name: JARVIS Android V3 (isolated build)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify uploaded V3 source archive
+        run: |
+          test -f jarvis-app-android-v3.zip
+          unzip -t jarvis-app-android-v3.zip
+
+      - name: Extract V3 source
+        run: unzip -q jarvis-app-android-v3.zip -d jarvis-build
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Validate Tauri source
+        working-directory: jarvis-build/jarvis-app-0.1.0
+        run: python3 scripts/validate_tauri_project.py
+
+      - name: Initialize Android project
+        working-directory: jarvis-build/jarvis-app-0.1.0
+        run: cargo tauri android init
+
+      - name: Add Android runtime permissions
+        working-directory: jarvis-build/jarvis-app-0.1.0
+        run: python3 scripts/patch_android_manifest.py
+
+      - name: Build APK
+        working-directory: jarvis-build/jarvis-app-0.1.0
+        run: cargo tauri android build --apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-android-v3-apk
+          path: jarvis-build/jarvis-app-0.1.0/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
