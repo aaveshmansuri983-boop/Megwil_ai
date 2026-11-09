@@ -2,6 +2,7 @@ package com.megwil.ai
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -86,12 +87,55 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
+        val lower = question.trim().lowercase(Locale.ROOT)
+        val prefixes = listOf("chrome par search karo", "chrome me search karo", "search on chrome", "search in chrome", "google par search karo", "google me search karo", "search for", "search karo")
+        val prefix = prefixes.firstOrNull { lower.startsWith(it) }
+        if (prefix != null) {
+            val query = question.trim().substring(prefix.length).trim()
+            if (query.isBlank()) { done("Kya search karna hai?"); return }
+            val url = "https://www.google.com/search?q=" + Uri.encode(query)
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.chrome")) }
+            catch (_: Exception) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            done("Chrome par search khol diya: " + query)
+            return
+        }
+        val appMap = listOf("whatsapp" to "com.whatsapp", "youtube" to "com.google.android.youtube", "instagram" to "com.instagram.android", "chrome" to "com.android.chrome", "maps" to "com.google.android.apps.maps", "gmail" to "com.google.android.gm", "camera" to "com.android.camera", "settings" to "com.android.settings")
+        if (lower.startsWith("open ") || lower.startsWith("kholo ")) {
+            val target = lower.removePrefix("open ").removePrefix("kholo ").trim()
+            val app = appMap.firstOrNull { target.contains(it.first) }
+            if (app != null) {
+                val launch = packageManager.getLaunchIntentForPackage(app.second)
+                if (launch != null) { startActivity(launch); done(app.first + " khol diya."); }
+                else done(app.first + " phone mein nahi mila.")
+                return
+            }
+        }
+        val phone = Regex("(?:\\+?91[- ]?)?[6-9]\\d{9}").find(question)?.value?.replace(Regex("[^0-9+]"), "")
+        if (phone != null && listOf("call", "phone lagao", "call karo", "कॉल", "फोन लगाओ").any { lower.contains(it) }) {
+            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + phone)))
+            done("Dialer khol diya. Call karne ke liye Call button dabao.")
+            return
+        }
+        if (phone != null && lower.contains("whatsapp") && listOf("message", "msg", "bhejo", "भेजो").any { lower.contains(it) }) {
+            val body = question.substringAfter("bhejo", question.substringAfter("भेजो", question.substringAfter("message", question.substringAfter("msg", "")))).trim()
+            if (body.isBlank()) { done("Message ka text bhi bolo."); return }
+            val digits = phone.filter { it.isDigit() }.let { if (it.length == 10) "91" + it else it }
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digits + "?text=" + Uri.encode(body))))
+            done("WhatsApp chat mein message draft khol diya. Check karke Send dabao.")
+            return
+        }
+        if (phone != null && lower.contains("whatsapp") && lower.contains("call")) {
+            val digits = phone.filter { it.isDigit() }.let { if (it.length == 10) "91" + it else it }
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digits)))
+            done("WhatsApp chat khol di. Call icon dabakar call karo.")
+            return
+        }
         val key = prefs.getString("groq_key", "").orEmpty()
         if (key.isBlank()) { done("Pehle Settings mein apni Groq API key save karo."); return }
         lifecycleScope.launch {
             try {
                 val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Never claim to perform phone actions unless actually completed.")
-                val messages = listOf(system) + history.takeLast(16) + Message("user", question)
+                val messages = listOf(system) + history.filter { it.role == "user" || it.role == "assistant" }.takeLast(20)
                 val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("llama-3.3-70b-versatile", messages))
                 done(result.choices.firstOrNull()?.message?.content ?: "Mujhe response nahi mila.")
             } catch (e: Exception) {
