@@ -38,62 +38,104 @@ jobs:
           python3 - "$PROJECT" <<'PY'
           from pathlib import Path
           import re, sys
-          root = Path(sys.argv[1]) / "src-tauri/src"
-          p = root / "lib.rs"
-          s = p.read_text()
-          def add_cfg(line, cfg):
-              if line not in s:
-                  raise SystemExit("expected Rust source line missing: " + line)
-              return s.replace(line, cfg + "\n" + line, 1)
-          s = add_cfg("use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};", "#[cfg(not(target_os = \\"android\\"))]")
-          s = add_cfg("use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};", "#[cfg(not(target_os = \\"android\\"))]")
-          s = add_cfg("use tauri_plugin_autostart::ManagerExt;", "#[cfg(not(target_os = \\"android\\"))]")
-          s = add_cfg('const TRAY_ID: &str = "main-tray";', "#[cfg(not(target_os = \\"android\\"))]")
+
+          root = Path(sys.argv[1]) / "src-tauri" / "src"
+          lib_path = root / "lib.rs"
+          s = lib_path.read_text()
+
+          def cfg_import(source, statement):
+              if statement not in source:
+                  raise SystemExit("Missing expected import: " + statement)
+              return source.replace(statement, '#[cfg(not(target_os = "android"))]\n' + statement, 1)
+
+          for statement in (
+              "use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};",
+              "use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};",
+              "use tauri_plugin_autostart::ManagerExt;",
+              'const TRAY_ID: &str = "main-tray";',
+          ):
+              s = cfg_import(s, statement)
+
           s = s.replace("        .decorations(false)\n", "")
-          # Android does not provide the desktop folder picker; retain the command signature.
-          pattern = r"#\[tauri::command\]\s*async fn pick_widget_appearance_folder\(.*?\n\}"
-          m = re.search(pattern, s, re.S)
-          if not m:
-              raise SystemExit("folder picker function not found")
-          desktop_fn = m.group(0)
-          android_fn = '\n#[cfg(target_os = "android")]\n#[tauri::command]\nasync fn pick_widget_appearance_folder(_id: String, _app: AppHandle) -> Option<String> { None }\n'
-          s = s[:m.start()] + '#[cfg(not(target_os = "android"))]\n' + desktop_fn + android_fn + s[m.end():]
-          # Keep the tray helper available to shared call sites.
-          tray = r"fn set_tray_tooltip\(app: &AppHandle, tooltip: &str\) \{\s*if let Some\(tray\) = app\.tray_by_id\(TRAY_ID\) \{\s*let _ = tray\.set_tooltip\(Some\(tooltip\)\);\s*\}\s*\}"
-          m = re.search(tray, s)
-          if m:
-              s = s[:m.start()] + '#[cfg(not(target_os = "android"))]\n' + m.group(0) + '\n#[cfg(target_os = "android")]\nfn set_tray_tooltip(_app: &AppHandle, _tooltip: &str) {}' + s[m.end():]
-          # Register autostart only on desktop.
-          old = '''    tauri::Builder::default()
-          .plugin(tauri_plugin_autostart::init(
-              tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-              None,
-          ))
-          .plugin(tauri_plugin_dialog::init())'''
-          new = '''    let builder = tauri::Builder::default();
-          #[cfg(not(target_os = "android"))]
-          let builder = builder.plugin(tauri_plugin_autostart::init(
-              tauri_plugin_autostart::MacosLauncher::LaunchAgent, None,
-          ));
-          builder.plugin(tauri_plugin_dialog::init())'''
-          if old in s:
-              s = s.replace(old, new, 1)
-          p.write_text(s)
-          p = root / "ipc.rs"
-          s = p.read_text()
-          if '#[cfg(target_os = "android")]' not in s:
-              needle = '    #[cfg(windows)]'
-              idx = s.find(needle)
-              if idx < 0: raise SystemExit("windows data-dir branch not found")
-              s = s[:idx] + '''    #[cfg(target_os = "android")]
+
+          # Android has no desktop folder chooser; keep the invoke command available.
+          picker = re.compile(r"#\[tauri::command\]\s*async fn pick_widget_appearance_folder\(.*?\n\}", re.S)
+          match = picker.search(s)
+          if not match:
+              raise SystemExit("Could not find pick_widget_appearance_folder")
+          desktop_picker = match.group(0)
+          android_picker = (
+              '\n#[cfg(target_os = "android")]\n'
+              '#[tauri::command]\n'
+              'async fn pick_widget_appearance_folder(_id: String, _app: AppHandle) -> Option<String> { None }\n'
+          )
+          s = s[:match.start()] + '#[cfg(not(target_os = "android"))]\n' + desktop_picker + android_picker + s[match.end():]
+
+          # The shared poll loop calls this helper on every platform.
+          tray_helper = re.compile(
+              r"fn set_tray_tooltip\(app: &AppHandle, tooltip: &str\) \{.*?\n\}",
+              re.S,
+          )
+          match = tray_helper.search(s)
+          if not match:
+              raise SystemExit("Could not find set_tray_tooltip")
+          helper = match.group(0)
+          s = s[:match.start()] + (
+              '#[cfg(not(target_os = "android"))]\n' + helper +
+              '\n#[cfg(target_os = "android")]\n'
+              'fn set_tray_tooltip(_app: &AppHandle, _tooltip: &str) {}'
+          ) + s[match.end():]
+
+          # Autostart plugin exists only on desktop.
+          old_plugin = '''    tauri::Builder::default()
+                  .plugin(tauri_plugin_autostart::init(
+                      tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                      None,
+                  ))
+                  .plugin(tauri_plugin_dialog::init())'''
+          new_plugin = '''    let builder = tauri::Builder::default();
+              #[cfg(not(target_os = "android"))]
+              let builder = builder.plugin(tauri_plugin_autostart::init(
+                  tauri_plugin_autostart::MacosLauncher::LaunchAgent, None,
+              ));
+              builder.plugin(tauri_plugin_dialog::init())'''
+          if old_plugin not in s:
+              raise SystemExit("Could not find autostart plugin registration")
+          s = s.replace(old_plugin, new_plugin, 1)
+
+          # Wrap system tray and autostart menu setup in a desktop-only block.
+          start = '            let show_hide = MenuItemBuilder::with_id("show_hide", "Show/Hide JARVIS").build(app)?;'
+          end = "            tray_builder.build(app)?;"
+          begin = s.find(start)
+          finish = s.find(end, begin)
+          if begin < 0 or finish < 0:
+              raise SystemExit("Could not locate complete tray setup")
+          finish += len(end)
+          tray_block = s[begin:finish]
+          wrapped = '#[cfg(not(target_os = "android"))]\n            {\n' + ''.join("    " + line + "\n" for line in tray_block.splitlines()) + "            }"
+          s = s[:begin] + wrapped + s[finish:]
+          lib_path.write_text(s)
+
+          # Add an Android writable data-directory fallback.
+          ipc_path = root / "ipc.rs"
+          ipc = ipc_path.read_text()
+          if '#[cfg(target_os = "android")]' not in ipc:
+              marker = '    #[cfg(windows)]'
+              pos = ipc.find(marker)
+              if pos < 0:
+                  raise SystemExit("Could not locate Windows data-directory branch")
+              android_branch = '''    #[cfg(target_os = "android")]
               {
-                  let base = std::env::var("HOME").or_else(|_| std::env::var("TMPDIR")).unwrap_or_else(|_| "/data/local/tmp".into());
+                  let base = std::env::var("HOME")
+                      .or_else(|_| std::env::var("TMPDIR"))
+                      .unwrap_or_else(|_| "/data/local/tmp".into());
                   format!("{}/jarvis", base)
               }
-          ''' + s[idx:]
-              p.write_text(s)
+          '''
+              ipc = ipc[:pos] + android_branch + ipc[pos:]
+              ipc_path.write_text(ipc)
+          print("Android compatibility patch applied.")
           PY
-
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
