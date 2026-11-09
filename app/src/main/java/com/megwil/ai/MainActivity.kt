@@ -180,7 +180,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         // Save only facts the user explicitly asks MEGWIL to remember.
         if (lower.startsWith("remember ") || lower.startsWith("yaad rakhna ") || lower.startsWith("याद रखना ")) {
-            val fact = question.trim().substringAfter(" ", "").trim()
+            val fact = Regex("(?i)^(remember|yaad\\s+rakhna|याद\\s+रखना)\\s+").replaceFirst(question.trim(), "").trim()
             if (fact.isBlank()) { done("Kya yaad rakhna hai?"); return }
             val facts = prefs.getStringSet("long_term_memory", emptySet())?.toMutableSet() ?: mutableSetOf()
             facts.add(fact)
