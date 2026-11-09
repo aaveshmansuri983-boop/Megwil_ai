@@ -55,24 +55,11 @@ jobs:
           add_cfg('const TRAY_ID: &str = "main-tray";')
           s = s.replace("        .decorations(false)\\n", "")
 
-          # Desktop-only widget-window and tray APIs are unavailable on Android.
-          widget_builder_pattern = re.compile(
-              r"(?m)^    let mut builder = WebviewWindowBuilder::new\(app, &label, WebviewUrl::External\(parsed\)\)\s+\.title\(&manifest\.name\)\s+\.inner_size\(160\.0, 160\.0\)\s+\.transparent\(true\)\s+\.always_on_top\(true\)\s+\.skip_taskbar\(true\)\s+\.resizable\(false\);"
-          )
-          widget_builder_new = "\n".join([
-              "    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))",
-              "        .title(&manifest.name)",
-              "        .inner_size(160.0, 160.0)",
-              "        .transparent(true);",
-              '    #[cfg(not(target_os = "android"))]',
-              "    {",
-              "        builder = builder.always_on_top(true).skip_taskbar(true);",
-              "    }",
-              "    builder = builder.resizable(false);",
-          ])
-          if not widget_builder_pattern.search(s):
-              raise SystemExit("Widget window builder block not found")
-          s = widget_builder_pattern.sub(lambda _: widget_builder_new, s, count=1)
+          # This script patches only the Android build copy; remove desktop-only widget-window APIs.
+          for desktop_method in ("        .always_on_top(true)\n", "        .skip_taskbar(true)\n"):
+              if desktop_method not in s:
+                  raise SystemExit("Expected desktop-only widget method not found: " + desktop_method.strip())
+              s = s.replace(desktop_method, "", 1)
 
           tray_tooltip_pattern = re.compile(r"(?m)^fn set_tray_tooltip\(")
           if not tray_tooltip_pattern.search(s):
