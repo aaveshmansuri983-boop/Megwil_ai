@@ -79,7 +79,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         val signedIn = GoogleSignIn.getLastSignedInAccount(this)?.email
                         if (signedIn.equals(ownerEmail, ignoreCase = true)) startActivity(Intent(this, OwnerDashboardActivity::class.java)) else startGoogleLogin()
                     },
-                    onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                    onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                    onWakeWordToggle = { enabled ->
+                        val serviceIntent = Intent(this, com.megwil.ai.service.WakeWordService::class.java)
+                        if (enabled) ContextCompat.startForegroundService(this, serviceIntent) else stopService(serviceIntent)
+                    }
                 )
             }
         }
@@ -272,6 +276,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             done("Maps navigation khol di: " + destination)
             return
         }
+        val youtubePrefixes = listOf("youtube par ", "youtube me ", "youtube mein ", "youtube search ", "play on youtube ", "youtube kholo ")
+        val youtubePrefix = youtubePrefixes.firstOrNull { lower.startsWith(it) }
+        if (youtubePrefix != null) {
+            val query = question.trim().substring(youtubePrefix.length).replace(Regex("(?i)\\s*(chalao|play karo|search karo)$"), "").trim()
+            if (query.isBlank()) { done("YouTube par kya chalana hai?"); return }
+            val searchUri = Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query))
+            val youtubeIntent = Intent(Intent.ACTION_VIEW, searchUri).setPackage("com.google.android.youtube")
+            try {
+                startActivity(youtubeIntent)
+                done("YouTube par search khol diya: " + query)
+            } catch (_: Exception) {
+                startActivity(Intent(Intent.ACTION_VIEW, searchUri))
+                done("YouTube search browser mein khol diya: " + query)
+            }
+            return
+        }
         if (lower.startsWith("weather ") || lower.startsWith("mausam ") || lower.contains("weather in ") || lower.contains("mausam batao")) {
             val place = question.substringAfter("weather in ", question.substringAfter("weather ", question.substringAfter("mausam ", ""))).trim().removeSuffix("batao").trim()
             val query = if (place.isBlank()) "weather today" else "weather in " + place
@@ -451,7 +471,8 @@ private fun MegwilScreen(
     onListen: ((String) -> Unit) -> Unit,
     onGoogleLogin: () -> Unit,
     onDashboard: () -> Unit,
-    onAccessibilitySettings: () -> Unit
+    onAccessibilitySettings: () -> Unit,
+    onWakeWordToggle: (Boolean) -> Unit
 ) {
     var key by remember { mutableStateOf(savedKey) }
     var showSettings by remember { mutableStateOf(savedKey.isBlank()) }
@@ -460,6 +481,7 @@ private fun MegwilScreen(
     var listening by remember { mutableStateOf(false) }
     var answer by remember { mutableStateOf("Namaste! Main MEGWIL hoon. Groq API key set karke mujhse baat shuru karo.") }
     var pendingAction by remember { mutableStateOf("") }
+    var wakeWordEnabled by remember { mutableStateOf(false) }
     if (pendingAction.isNotBlank()) {
         val parts = pendingAction.split("|", limit = 5)
         val who = parts.getOrElse(2) { "contact" }
@@ -509,6 +531,12 @@ private fun MegwilScreen(
                     Text("Apps kholne, volume badalne/ghatane aur Wi-Fi, Bluetooth, Display ya Sound settings kholne ke liye MEGWIL ko bolo. Calls aur WhatsApp messages hamesha YES/NO confirmation ke baad hi chalenge. Android security restrictions bypass nahi ki ja sakti.", color = Color.LightGray, fontSize = 11.sp)
                     Text("LONG-TERM MEMORY", color = Cyan, fontWeight = FontWeight.Bold)
                     Text("Kisi baat ko save karne ke liye 'Yaad rakhna ...' bolo. 'Meri memory dikhao' se dekho aur 'Memory delete karo' se clear karo. Memory isi phone par local save hoti hai.", color = Color.LightGray, fontSize = 11.sp)
+                    Text("MEGWIL WAKE WORD", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Background wake-word listening uses Android speech recognition and an ongoing microphone notification. Start it while MEGWIL is open; tap the MEGWIL notification after it hears the wake word to continue. Battery and network use may increase.", color = Color.LightGray, fontSize = 11.sp)
+                    TextButton(onClick = {
+                        wakeWordEnabled = !wakeWordEnabled
+                        onWakeWordToggle(wakeWordEnabled)
+                    }) { Text(if (wakeWordEnabled) "STOP WAKE WORD LISTENING" else "START 'MEGWIL' WAKE WORD", color = Cyan) }
                     Text("WHATSAPP ACCESSIBILITY", color = Cyan, fontWeight = FontWeight.Bold)
                     Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein.", color = Color.LightGray, fontSize = 11.sp)
                     TextButton(onClick = onAccessibilitySettings) { Text("ENABLE ACCESSIBILITY CONTROL", color = Cyan) }
