@@ -20,7 +20,8 @@ interface GroqApi {
 }
 
 object GroqApiClient {
-    private const val BASE_URL = "https://api.groq.com/"
+    // Groq's OpenAI-compatible API is rooted at /openai/v1/.
+    private const val BASE_URL = "https://api.groq.com/openai/"
 
     val api: GroqApi by lazy {
         Retrofit.Builder()
