@@ -1,4 +1,4 @@
-package com.megwil.ai.service
+package com.megwil.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
