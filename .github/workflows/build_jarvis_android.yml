@@ -57,13 +57,7 @@ jobs:
 
           # Desktop-only widget-window and tray APIs are unavailable on Android.
           widget_builder_pattern = re.compile(
-              r"(?m)^    let mut builder = WebviewWindowBuilder::new\(app, &label, WebviewUrl::External\(parsed\)\)\n"
-              r"        \.title\(&manifest\.name\)\n"
-              r"        \.inner_size\(160\.0, 160\.0\)\n"
-              r"        \.transparent\(true\)\n"
-              r"        \.always_on_top\(true\)\n"
-              r"        \.skip_taskbar\(true\)\n"
-              r"        \.resizable\(false\);"
+              r"(?m)^    let mut builder = WebviewWindowBuilder::new\(app, &label, WebviewUrl::External\(parsed\)\)\s+\.title\(&manifest\.name\)\s+\.inner_size\(160\.0, 160\.0\)\s+\.transparent\(true\)\s+\.always_on_top\(true\)\s+\.skip_taskbar\(true\)\s+\.resizable\(false\);"
           )
           widget_builder_new = "\n".join([
               "    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))",
