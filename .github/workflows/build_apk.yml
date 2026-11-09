@@ -41,6 +41,14 @@ jobs:
           MEGWIL_OWNER_GMAIL: ${{ secrets.MEGWIL_OWNER_GMAIL }}
         run: gradle assembleDebug --no-daemon
 
+      - name: Upload debug APK artifact (even if device smoke test later fails)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MEGWIL-Android-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Boot cloud Android emulator and smoke-test MEGWIL
         uses: reactivecircus/android-emulator-runner@v2
         with:
