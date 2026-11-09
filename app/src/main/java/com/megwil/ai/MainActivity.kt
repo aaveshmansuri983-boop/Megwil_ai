@@ -530,7 +530,7 @@ private fun MegwilScreen(
     onGoogleLogin: () -> Unit,
     onDashboard: () -> Unit,
     onAccessibilitySettings: () -> Unit,
-    onWakeWordToggle: (Boolean) -> Unit
+    onWakeWordToggle: (Boolean, (Boolean) -> Unit) -> Unit
 ) {
     var key by remember { mutableStateOf(savedKey) }
     var showSettings by remember { mutableStateOf(savedKey.isBlank()) }
