@@ -57,7 +57,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # sdkmanager exits after reading the available answers; with pipefail, yes's
+          # expected SIGPIPE is incorrectly treated as a failed licence step.
+          set +o pipefail
           yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
