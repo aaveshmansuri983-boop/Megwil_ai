@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.content.SharedPreferences
 import android.media.AudioManager
+import android.hardware.camera2.CameraManager
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import android.provider.Settings
@@ -59,6 +60,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var pendingContactCommand: String? = null
     private var pendingContactCallback: ((String) -> Unit)? = null
     private var pendingWakeWordStateCallback: ((Boolean) -> Unit)? = null
+    private var flashlightEnabled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -176,7 +178,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val kind = parts[1]
         val number = parts[3].filter { it.isDigit() }
         val body = parts.getOrElse(4) { "" }
-        if (kind == "phone_call") {
+        if (kind == "sms_compose") {
+            val smsIntent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + number))
+                .putExtra("sms_body", body)
+            try { startActivity(smsIntent) }
+            catch (_: Exception) { android.widget.Toast.makeText(this, "SMS app available nahi hai.", android.widget.Toast.LENGTH_LONG).show() }
+        } else if (kind == "phone_call") {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
                 prefs.edit().putString("pending_call", number).apply()
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CALL_PHONE), 503)
@@ -372,6 +379,24 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
 
+        // Flashlight control through Android CameraManager.
+        if (listOf("flashlight on", "torch on", "torch chalu", "flash chalu", "flashlight off", "torch off", "torch band", "flash band", "टॉर्च चालू", "टॉर्च बंद").any { lower.contains(it) }) {
+            val turnOn = listOf("off", "band", "बंद").none { lower.contains(it) }
+            try {
+                val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+                val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+                    cameraManager.getCameraCharacteristics(id).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                }
+                if (cameraId == null) { done("Is phone mein flashlight available nahi hai."); return }
+                cameraManager.setTorchMode(cameraId, turnOn)
+                flashlightEnabled = turnOn
+                done(if (turnOn) "Flashlight on kar di." else "Flashlight off kar di.")
+            } catch (e: Exception) {
+                done("Flashlight control nahi ho paya: " + (e.localizedMessage ?: "Android restriction"))
+            }
+            return
+        }
+
         // Android permits these controls through public intents/APIs; OS restrictions remain in force.
         val audio = getSystemService(AUDIO_SERVICE) as AudioManager
         if (listOf("volume up", "awaaz badhao", "volume badhao").any { lower.contains(it) }) {
@@ -492,6 +517,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             return
         }
+        val smsCommand = Regex("^(.+?) ko sms(?: bhejo)?[: ]+(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
+        if (smsCommand != null) {
+            val who = smsCommand.groupValues[1].trim()
+            val body = smsCommand.groupValues[2].trim()
+            if (body.isBlank()) { done("SMS ka message text bhi bolo."); return }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                pendingContactCommand = question
+                pendingContactCallback = done
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 502)
+                return
+            }
+            val numbers = findContactNumbers(who)
+            if (numbers.isEmpty()) { done("Is exact naam ka contact nahi mila: " + who); return }
+            if (numbers.size > 1) { done("Is naam ke multiple numbers mile. Contact ka poora naam specify karo."); return }
+            done("CONFIRM_ACTION|sms_compose|" + who + "|" + numbers.first() + "|" + body)
+            return
+        }
         val cmd = Regex("^(.+?) ko (whatsapp(?: par)? )?(call(?: karo)?|message(?: bhejo)?|msg(?: bhejo)?|phone lagao)[: ]*(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
         if (cmd != null) {
             val who = cmd.groupValues[1].trim()
@@ -572,10 +614,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {}
-                override fun onError(error: Int) { callback("Voice input nahi samajh aaya. Dobara try karo.") }
+                override fun onError(error: Int) {
+                    val message = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "Microphone audio error. Mic check karke dobara bolo."
+                        SpeechRecognizer.ERROR_CLIENT -> "Voice service busy hai. Thodi der baad try karo."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission nahi mili. Settings mein allow karo."
+                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition ke liye internet connection check karo."
+                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Awaaz clear nahi mili. Mic dabakar paas se dobara bolo."
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Voice recognition busy hai. Ek second rukkar dobara try karo."
+                        else -> "Voice input mein error aaya (" + error + "). Dobara try karo."
+                    }
+                    voiceCallback = null
+                    callback(message)
+                }
                 override fun onResults(results: Bundle?) {
                     val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    if (!spoken.isNullOrBlank()) callback(spoken)
+                    voiceCallback = null
+                    callback(if (spoken.isNullOrBlank()) "Awaaz samajh nahi aayi. Dobara try karo." else spoken)
                 }
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
