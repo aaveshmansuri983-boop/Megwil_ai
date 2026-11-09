@@ -40,6 +40,8 @@ import com.megwil.ai.ui.dashboard.OwnerDashboardActivity
 import com.megwil.ai.ui.theme.MegwilAITheme
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 private val Cyan = Color(0xFF00E5FF)
 private val Navy = Color(0xFF070B14)
@@ -59,10 +61,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             MegwilAITheme {
                 MegwilScreen(
                     savedKey = prefs.getString("groq_key", "") ?: "",
+                    savedHistory = loadHistory(),
                     onSaveKey = { prefs.edit().putString("groq_key", it.trim()).apply() },
                     onAsk = { question, history, done ->
                         askMegwil(question, history, done)
                     },
+                    onHistoryChanged = { saveHistory(it) },
                     onSpeak = { speak(it) },
                     onListen = { callback -> listen(callback) },
                     onGoogleLogin = { startGoogleLogin() },
@@ -70,6 +74,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 )
             }
         }
+    }
+
+    private fun loadHistory(): List<Message> = try {
+        val raw = prefs.getString("chat_history", null) ?: return emptyList()
+        Gson().fromJson(raw, object : TypeToken<List<Message>>() {}.type) ?: emptyList()
+    } catch (_: Exception) { emptyList() }
+
+    private fun saveHistory(history: List<Message>) {
+        prefs.edit().putString("chat_history", Gson().toJson(history.takeLast(100))).apply()
     }
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
@@ -166,7 +179,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 @Composable
 private fun MegwilScreen(
     savedKey: String,
+    savedHistory: List<Message>,
     onSaveKey: (String) -> Unit,
+    onHistoryChanged: (List<Message>) -> Unit,
     onAsk: (String, List<Message>, (String) -> Unit) -> Unit,
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit) -> Unit,
@@ -179,7 +194,7 @@ private fun MegwilScreen(
     var busy by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
     var answer by remember { mutableStateOf("Namaste! Main MEGWIL hoon. Groq API key set karke mujhse baat shuru karo.") }
-    val history = remember { mutableStateListOf<Message>() }
+    val history = remember { mutableStateListOf<Message>().apply { addAll(savedHistory) } }
 
     Column(Modifier.fillMaxSize().background(Navy).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -253,10 +268,12 @@ private fun MegwilScreen(
                     val q = input.trim()
                     if (q.isNotEmpty() && !busy) {
                         history.add(Message("user", q))
+                        onHistoryChanged(history.toList())
                         input = ""; busy = true
                         onAsk(q, history.toList()) { result ->
                             answer = result
                             history.add(Message("assistant", result))
+                            onHistoryChanged(history.toList())
                             busy = false
                         }
                     }
@@ -267,7 +284,7 @@ private fun MegwilScreen(
             ) { Text(if (busy) "WAIT..." else "SEND", color = Navy) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { history.clear(); answer = "Conversation cleared." }) { Text("CLEAR CHAT", color = Color.LightGray) }
+            TextButton(onClick = { history.clear(); onHistoryChanged(emptyList()); answer = "Conversation cleared." }) { Text("CLEAR CHAT", color = Color.LightGray) }
             TextButton(onClick = onDashboard) { Text("OWNER DASHBOARD", color = Cyan) }
         }
     }
