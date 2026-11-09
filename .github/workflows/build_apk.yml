@@ -49,6 +49,47 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK"
 
+      - name: Prepare cloud smoke-test script
+        run: |
+          cat > "$GITHUB_WORKSPACE/megwil-cloud-smoke-test.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+          SCREENSHOT="$GITHUB_WORKSPACE/megwil-home.png"
+          LOGCAT="$GITHUB_WORKSPACE/megwil-logcat.txt"
+
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "APK expected at: $APK"
+          ls -lh "$GITHUB_WORKSPACE/app/build/outputs/apk/debug/"
+          test -s "$APK"
+
+          adb wait-for-device
+          adb install -r "$APK"
+          adb shell am force-stop com.megwil || true
+          adb shell am start -n com.megwil/.MainActivity
+
+          for attempt in $(seq 1 12); do
+            if adb shell pidof com.megwil | tr -d '\\r' | grep -q '[0-9]'; then
+              break
+            fi
+            sleep 2
+          done
+          adb shell pidof com.megwil
+
+          adb shell input keyevent 82 || true
+          sleep 3
+          adb exec-out screencap -p > "$SCREENSHOT"
+          test -s "$SCREENSHOT"
+          file "$SCREENSHOT"
+
+          adb logcat -d -t 5000 > "$LOGCAT"
+          if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" "$LOGCAT"; then
+            exit 1
+          fi
+          EOF
+          chmod +x "$GITHUB_WORKSPACE/megwil-cloud-smoke-test.sh"
+
       - name: Boot cloud Android emulator and smoke-test MEGWIL
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -58,37 +99,7 @@ jobs:
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim
           disable-animations: true
-          script: |
-            set -eu
-            cd "$GITHUB_WORKSPACE"
-            APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
-            SCREENSHOT="$GITHUB_WORKSPACE/megwil-home.png"
-            LOGCAT="$GITHUB_WORKSPACE/megwil-logcat.txt"
-            test -s "$APK"
-
-            adb wait-for-device
-            adb install -r "$APK"
-            adb shell am force-stop com.megwil || true
-            adb shell am start -n com.megwil/.MainActivity
-
-            for attempt in $(seq 1 12); do
-              if adb shell pidof com.megwil | tr -d '\r' | grep -q '[0-9]'; then
-                break
-              fi
-              sleep 2
-            done
-            adb shell pidof com.megwil
-
-            adb shell input keyevent 82 || true
-            sleep 3
-            adb exec-out screencap -p > "$SCREENSHOT"
-            test -s "$SCREENSHOT"
-            file "$SCREENSHOT"
-
-            adb logcat -d -t 5000 > "$LOGCAT"
-            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" "$LOGCAT"; then
-              exit 1
-            fi
+          script: bash "$GITHUB_WORKSPACE/megwil-cloud-smoke-test.sh"
 
       - name: Upload APK and cloud phone test evidence
         if: always()
