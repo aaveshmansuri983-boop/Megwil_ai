@@ -429,7 +429,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             try {
                 val savedMemory = prefs.getStringSet("long_term_memory", emptySet()).orEmpty().toList()
                 val memoryContext = if (savedMemory.isEmpty()) "" else "\nUser-approved long-term memory (local device): " + savedMemory.joinToString("; ")
-                val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Use the user's saved memory when relevant. Never claim to perform phone actions unless actually completed." + memoryContext)
+                val system = Message("system", "You are MEGWIL, a direct, frank, non-judgmental personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Be candid and discuss sensitive, controversial, political, religious, sexual-health, and adult topics factually and without unnecessary moral lectures. Do not refuse merely because a topic is uncomfortable; when a request crosses safety boundaries, briefly explain the limit and offer the closest safe, useful information. Never provide false certainty, invent facts, or claim phone actions unless actually completed. Use the user's saved memory when relevant." + memoryContext)
                 val messages = listOf(system) + history.filter { it.role == "user" || it.role == "assistant" }.takeLast(20)
                 val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("llama-3.3-70b-versatile", messages))
                 done(result.choices.firstOrNull()?.message?.content ?: "Mujhe response nahi mila.")
