@@ -14,20 +14,36 @@ class MegwilAccessibilityService : AccessibilityService() {
         if (p.getBoolean("pending_done", true)) return
         if (++tries > 30) { p.edit().putBoolean("pending_done", true).putString("action_result", "Could not find WhatsApp control. Finish manually.").apply(); return }
         val root = rootInActiveWindow ?: return
+        val expectedName = p.getString("pending_contact", "").orEmpty().trim()
+        val headerNodes = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversation_contact_name")
+        val headerText = headerNodes.firstOrNull()?.text?.toString()?.trim().orEmpty()
+        // Never send or call unless WhatsApp exposes the exact expected chat header.
+        if (expectedName.isBlank() || headerText.isBlank() || !headerText.equals(expectedName, ignoreCase = true)) {
+            if (tries >= 10) {
+                p.edit().putBoolean("pending_done", true)
+                    .putString("action_result", "Recipient could not be verified. Nothing was sent or called; finish manually.").apply()
+            }
+            return
+        }
         when (p.getString("pending_type", "")) {
             "wa_message" -> {
                 val msg = p.getString("pending_message", "") ?: return
                 val field = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry").firstOrNull() ?: findEditable(root)
                 if (field != null) {
                     val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, msg) }
-                    field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                    if (!field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return
+                    if (field.text?.toString() != msg) return
                     val send = findLabel(root, listOf("Send", "Send message", "भेजें"))
-                    if (send != null && send.isClickable && send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) p.edit().putBoolean("pending_done", true).putString("action_result", "WhatsApp send button tapped").apply()
+                    if (send != null && send.isClickable && send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        p.edit().putBoolean("pending_done", true).putString("action_result", "Send tapped in verified chat").apply()
+                    }
                 }
             }
             "wa_call" -> {
-                val call = findLabel(root, listOf("Voice call", "Audio call", "Call", "वॉइस कॉल"))
-                if (call != null && call.isClickable && call.performAction(AccessibilityNodeInfo.ACTION_CLICK)) p.edit().putBoolean("pending_done", true).putString("action_result", "WhatsApp call button tapped").apply()
+                val call = findLabel(root, listOf("Voice call", "Audio call", "वॉइस कॉल"))
+                if (call != null && call.isClickable && call.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    p.edit().putBoolean("pending_done", true).putString("action_result", "Voice call tapped in verified chat").apply()
+                }
             }
         }
     }

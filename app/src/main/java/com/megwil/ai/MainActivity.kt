@@ -6,6 +6,7 @@ import android.net.Uri
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -71,7 +72,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     onSpeak = { speak(it) },
                     onListen = { callback -> listen(callback) },
                     onGoogleLogin = { startGoogleLogin() },
-                    onDashboard = { startActivity(Intent(this, OwnerDashboardActivity::class.java)) }
+                    onDashboard = { startActivity(Intent(this, OwnerDashboardActivity::class.java)) },
+                    onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 )
             }
         }
@@ -123,7 +125,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val international = if (number.length == 10) "91" + number else number
             getSharedPreferences("megwil_actions", MODE_PRIVATE).edit()
                 .putString("pending_type", kind).putString("pending_number", international)
-                .putString("pending_message", body).putBoolean("pending_done", false).apply()
+                .putString("pending_contact", parts.getOrElse(2) { "" })
+                .putString("pending_message", body).putBoolean("pending_done", false)
+                .putString("action_result", "Waiting for the matching WhatsApp chat").apply()
             val link = if (kind == "wa_message") "https://wa.me/" + international + "?text=" + Uri.encode(body) else "https://wa.me/" + international
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
         }
@@ -298,7 +302,8 @@ private fun MegwilScreen(
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit) -> Unit,
     onGoogleLogin: () -> Unit,
-    onDashboard: () -> Unit
+    onDashboard: () -> Unit,
+    onAccessibilitySettings: () -> Unit
 ) {
     var key by remember { mutableStateOf(savedKey) }
     var showSettings by remember { mutableStateOf(savedKey.isBlank()) }
@@ -351,6 +356,10 @@ private fun MegwilScreen(
                         TextButton(onClick = onGoogleLogin) { Text("GOOGLE LOGIN", color = Cyan) }
                     }
                     Text("Key device ke private app storage mein save hoti hai. API key kisi ke saath share na karein.", color = Color.LightGray, fontSize = 11.sp)
+                    Divider(color = Color.DarkGray)
+                    Text("WHATSAPP CONTROL", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein. Android confirmation aur permissions bypass nahi kiye ja sakte.", color = Color.LightGray, fontSize = 11.sp)
+                    TextButton(onClick = onAccessibilitySettings) { Text("ENABLE WHATSAPP CONTROL", color = Cyan) }
                 }
             }
         }
@@ -366,9 +375,12 @@ private fun MegwilScreen(
                     }
                 }
             }
-            items(history.filter { it.role == "user" }) { msg ->
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF18283B))) {
-                    Text("YOU  •  ${msg.content}", Modifier.padding(12.dp), color = Color.White)
+            items(history) { msg ->
+                Card(colors = CardDefaults.cardColors(containerColor = if (msg.role == "user") Color(0xFF18283B) else Color(0xFF142033))) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(if (msg.role == "user") "YOU" else "MEGWIL", color = if (msg.role == "user") Color.LightGray else Cyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(msg.content, color = Color.White)
+                    }
                 }
             }
         }
