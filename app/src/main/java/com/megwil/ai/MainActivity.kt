@@ -294,7 +294,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             try {
                 val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Never claim to perform phone actions unless actually completed.")
                 val messages = listOf(system) + history.filter { it.role == "user" || it.role == "assistant" }.takeLast(20)
-                val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("llama-3.3-70b-versatile", messages))
+                val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("openai/gpt-oss-120b", messages))
                 done(result.choices.firstOrNull()?.message?.content ?: "Mujhe response nahi mila.")
             } catch (e: Exception) {
                 done("Connection/API error: ${e.localizedMessage ?: "unknown error"}. API key aur internet check karo.")
