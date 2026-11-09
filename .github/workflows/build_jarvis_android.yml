@@ -91,6 +91,19 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo tauri android init --ci --skip-targets-install
 
+      - name: Inspect Android source compatibility
+        working-directory: ${{ steps.source.outputs.project }}
+        shell: bash
+        run: |
+          echo '===== ROOT FILES ====='
+          find . -maxdepth 2 -type f | sort | head -120
+          echo '===== TAURI CARGO ====='
+          cat src-tauri/Cargo.toml
+          echo '===== LIB RS ====='
+          sed -n '1,760p' src-tauri/src/lib.rs
+          echo '===== IPC RS ====='
+          cat src-tauri/src/ipc.rs
+
       - name: Build JARVIS Android APK (ARM64)
         working-directory: ${{ steps.source.outputs.project }}
         env:
