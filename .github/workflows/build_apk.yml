@@ -68,16 +68,16 @@ jobs:
 
             adb wait-for-device
             adb install -r "$APK"
-            adb shell am force-stop com.megwil.ai || true
-            adb shell am start -n com.megwil.ai/.MainActivity
+            adb shell am force-stop com.megwil || true
+            adb shell am start -n com.megwil/.MainActivity
 
             for attempt in $(seq 1 12); do
-              if adb shell pidof com.megwil.ai | tr -d '\r' | grep -q '[0-9]'; then
+              if adb shell pidof com.megwil | tr -d '\r' | grep -q '[0-9]'; then
                 break
               fi
               sleep 2
             done
-            adb shell pidof com.megwil.ai
+            adb shell pidof com.megwil
 
             adb shell input keyevent 82 || true
             sleep 3
