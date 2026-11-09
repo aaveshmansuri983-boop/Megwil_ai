@@ -1,131 +1,266 @@
 package com.megwil.ai
 
+import android.Manifest
 import android.content.Intent
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.megwil.ai.data.GroqApiClient
+import com.megwil.ai.data.GroqRequest
+import com.megwil.ai.data.Message
 import com.megwil.ai.ui.dashboard.OwnerDashboardActivity
 import com.megwil.ai.ui.theme.MegwilAITheme
+import kotlinx.coroutines.launch
+import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+private val Cyan = Color(0xFF00E5FF)
+private val Navy = Color(0xFF070B14)
+
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val ownerEmail = "aaveshmansuri983@gmail.com"
+    private lateinit var prefs: SharedPreferences
+    private var tts: TextToSpeech? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var voiceCallback: ((String) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        prefs = getSharedPreferences("megwil_secure_settings", MODE_PRIVATE)
+        tts = TextToSpeech(this, this)
         setContent {
             MegwilAITheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0B0F19)
-                ) {
-                    MainScreen(
-                        onGoogleLogin = { startGoogleLogin() },
-                        onOpenDashboard = {
-                            startActivity(Intent(this, OwnerDashboardActivity::class.java))
-                        }
-                    )
-                }
+                MegwilScreen(
+                    savedKey = prefs.getString("groq_key", "") ?: "",
+                    onSaveKey = { prefs.edit().putString("groq_key", it.trim()).apply() },
+                    onAsk = { question, history, done ->
+                        askMegwil(question, history, done)
+                    },
+                    onSpeak = { speak(it) },
+                    onListen = { callback -> listen(callback) },
+                    onGoogleLogin = { startGoogleLogin() },
+                    onDashboard = { startActivity(Intent(this, OwnerDashboardActivity::class.java)) }
+                )
             }
+        }
+    }
+
+    private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
+        val key = prefs.getString("groq_key", "").orEmpty()
+        if (key.isBlank()) { done("Pehle Settings mein apni Groq API key save karo."); return }
+        lifecycleScope.launch {
+            try {
+                val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Never claim to perform phone actions unless actually completed.")
+                val messages = listOf(system) + history.takeLast(16) + Message("user", question)
+                val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("llama-3.3-70b-versatile", messages))
+                done(result.choices.firstOrNull()?.message?.content ?: "Mujhe response nahi mila.")
+            } catch (e: Exception) {
+                done("Connection/API error: ${e.localizedMessage ?: "unknown error"}. API key aur internet check karo.")
+            }
+        }
+    }
+
+    private fun speak(text: String) {
+        if (tts == null) tts = TextToSpeech(this, this)
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "megwil_reply")
+    }
+
+    private fun listen(callback: (String) -> Unit) {
+        voiceCallback = callback
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 501)
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) { callback("Is phone par speech recognition available nahi hai."); return }
+        speechRecognizer?.destroy()
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(object : android.speech.RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onError(error: Int) { callback("Voice input nahi samajh aaya. Dobara try karo.") }
+                override fun onResults(results: Bundle?) {
+                    val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (!spoken.isNullOrBlank()) callback(spoken)
+                }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            }
+            startListening(intent)
         }
     }
 
     private fun startGoogleLogin() {
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .build()
-        val client = GoogleSignIn.getClient(this, gso)
-        startActivityForResult(client.signInIntent, 100)
+        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().build()
+        startActivityForResult(GoogleSignIn.getClient(this, options).signInIntent, 100)
     }
 
-    @Deprecated("Use Activity Result APIs in a future update")
+    @Deprecated("Legacy Google Sign-In result callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 100) {
             try {
-                val account = GoogleSignIn.getSignedInAccountFromIntent(data)
-                    .getResult(ApiException::class.java)
+                val account = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
                 if (account?.email.equals(ownerEmail, ignoreCase = true)) {
                     startActivity(Intent(this, OwnerDashboardActivity::class.java))
+                } else {
+                    android.widget.Toast.makeText(this, "Owner account required: $ownerEmail", android.widget.Toast.LENGTH_LONG).show()
                 }
-            } catch (_: ApiException) {
-                // Sign-in was cancelled or failed.
+            } catch (e: ApiException) {
+                android.widget.Toast.makeText(this, "Google sign-in failed: ${e.statusCode}", android.widget.Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
+    override fun onDestroy() {
+        speechRecognizer?.destroy()
+        tts?.stop()
+        tts?.shutdown()
+        super.onDestroy()
     }
 }
 
 @Composable
-fun MainScreen(onGoogleLogin: () -> Unit, onOpenDashboard: () -> Unit) {
-    var queryText by remember { mutableStateOf("") }
-    val responseText = "Ready. Say 'Megwil' or type below."
+private fun MegwilScreen(
+    savedKey: String,
+    onSaveKey: (String) -> Unit,
+    onAsk: (String, List<Message>, (String) -> Unit) -> Unit,
+    onSpeak: (String) -> Unit,
+    onListen: ((String) -> Unit) -> Unit,
+    onGoogleLogin: () -> Unit,
+    onDashboard: () -> Unit
+) {
+    var key by remember { mutableStateOf(savedKey) }
+    var showSettings by remember { mutableStateOf(savedKey.isBlank()) }
+    var input by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var listening by remember { mutableStateOf(false) }
+    var answer by remember { mutableStateOf("Namaste! Main MEGWIL hoon. Groq API key set karke mujhse baat shuru karo.") }
+    val history = remember { mutableStateListOf<Message>() }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("MEGWIL AI", color = Color(0xFF00E5FF), fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Text("Android 15 Jarvis-Grade Assistant", color = Color.Gray, fontSize = 14.sp)
-        }
-
-        Box(
-            modifier = Modifier.size(180.dp).background(Color(0xFF1E293B), shape = CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier.size(140.dp).background(Color(0xFF00E5FF).copy(alpha = 0.2f), shape = CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("MEGWIL", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().background(Navy).padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("MEGWIL AI", color = Cyan, fontSize = 25.sp, fontWeight = FontWeight.Black)
+                Text("PERSONAL INTELLIGENCE • ONLINE", color = Color.LightGray, fontSize = 10.sp)
             }
+            TextButton(onClick = { showSettings = !showSettings }) { Text("SETTINGS", color = Cyan) }
         }
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
-            modifier = Modifier.fillMaxWidth().height(120.dp)
-        ) {
-            Box(modifier = Modifier.padding(16.dp)) {
-                Text(responseText, color = Color.White)
-            }
-        }
-
-        Column(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = queryText,
-                onValueChange = { queryText = it },
-                label = { Text("Ask Megwil...", color = Color.Gray) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF00E5FF),
-                    unfocusedBorderColor = Color.Gray,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                )
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Button(onClick = onGoogleLogin, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F2937))) {
-                    Text("Google Login")
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.fillMaxWidth().height(164.dp).background(Color(0xFF101C2C), RoundedCornerShape(22.dp)), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(104.dp).background(Cyan.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(78.dp).background(Color(0xFF0B2635), CircleShape), contentAlignment = Alignment.Center) {
+                        Text("M", color = Cyan, fontSize = 42.sp, fontWeight = FontWeight.Black)
+                    }
                 }
-                Button(onClick = onOpenDashboard, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))) {
-                    Text("Owner Dashboard", color = Color.Black)
+                Spacer(Modifier.height(8.dp))
+                Text(if (busy) "THINKING..." else if (listening) "LISTENING..." else "MEGWIL • READY", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (showSettings) {
+            Spacer(Modifier.height(12.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF142033))) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("AI CONFIGURATION", color = Cyan, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = key, onValueChange = { key = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Groq API key") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onSaveKey(key); showSettings = false }, colors = ButtonDefaults.buttonColors(containerColor = Cyan)) { Text("SAVE KEY", color = Navy) }
+                        TextButton(onClick = onGoogleLogin) { Text("GOOGLE LOGIN", color = Cyan) }
+                    }
+                    Text("Key device ke private app storage mein save hoti hai. API key kisi ke saath share na karein.", color = Color.LightGray, fontSize = 11.sp)
                 }
             }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("CONVERSATION", color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF142033))) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("MEGWIL", color = Cyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(answer, color = Color.White, fontSize = 14.sp)
+                        TextButton(onClick = { onSpeak(answer) }) { Text("▶ SPEAK", color = Cyan) }
+                    }
+                }
+            }
+            items(history.filter { it.role == "user" }) { msg ->
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF18283B))) {
+                    Text("YOU  •  ${msg.content}", Modifier.padding(12.dp), color = Color.White)
+                }
+            }
+        }
+        OutlinedTextField(
+            value = input, onValueChange = { input = it }, modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Ask MEGWIL anything...") }, maxLines = 3
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = {
+                listening = true
+                onListen { text -> input = text; listening = false }
+            }, modifier = Modifier.weight(1f)) { Text("🎙 VOICE") }
+            Button(
+                onClick = {
+                    val q = input.trim()
+                    if (q.isNotEmpty() && !busy) {
+                        history.add(Message("user", q))
+                        input = ""; busy = true
+                        onAsk(q, history.toList()) { result ->
+                            answer = result
+                            history.add(Message("assistant", result))
+                            busy = false
+                        }
+                    }
+                },
+                enabled = input.isNotBlank() && !busy,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Cyan, disabledContainerColor = Color.DarkGray)
+            ) { Text(if (busy) "WAIT..." else "SEND", color = Navy) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = { history.clear(); answer = "Conversation cleared." }) { Text("CLEAR CHAT", color = Color.LightGray) }
+            TextButton(onClick = onDashboard) { Text("OWNER DASHBOARD", color = Cyan) }
         }
     }
 }
