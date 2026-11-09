@@ -164,7 +164,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 return
             }
         }
-        val cmd = Regex("^(.+?) ko (whatsapp )?(call|message|msg|bhejo|phone lagao)[: ]*(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
+        val cmd = Regex("^(.+?) ko (whatsapp(?: par)? )?(call(?: karo)?|message(?: bhejo)?|msg(?: bhejo)?|phone lagao)[: ]*(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
         if (cmd != null) {
             val who = cmd.groupValues[1].trim()
             val wa = cmd.groupValues[2].isNotBlank() || lower.contains("whatsapp")
