@@ -41,6 +41,12 @@ jobs:
           JARVIS_OWNER_GMAIL: ${{ secrets.MEGWIL_OWNER_GMAIL }}
         run: gradle assembleDebug --no-daemon
 
+      - name: Show debug APK signing fingerprint
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+
       - name: Boot cloud Android emulator and smoke-test MEGWIL
         uses: reactivecircus/android-emulator-runner@v2
         with:
