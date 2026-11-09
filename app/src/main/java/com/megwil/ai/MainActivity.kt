@@ -152,6 +152,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number)))
             }
         }
+        if (requestCode == 501) {
+            val callback = voiceCallback
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && callback != null) {
+                listen(callback)
+            } else {
+                voiceCallback = null
+                callback?.invoke("Microphone permission nahi mili. Settings mein allow karke dobara try karo.")
+            }
+        }
         if (requestCode == 502) {
             val command = pendingContactCommand
             val callback = pendingContactCallback
@@ -218,7 +227,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             return
         }
         if (lower.startsWith("weather ") || lower.startsWith("mausam ") || lower.contains("weather in ") || lower.contains("mausam batao")) {
-            val place = question.substringAfter("weather in ", question.substringAfter("weather ", question.substringAfter("mausam ", ""))).trim()
+            val place = question.substringAfter("weather in ", question.substringAfter("weather ", question.substringAfter("mausam ", ""))).trim().removeSuffix("batao").trim()
             val query = if (place.isBlank()) "weather today" else "weather in " + place
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query))))
             done("Latest mausam ki jankari browser mein khol di: " + query)
