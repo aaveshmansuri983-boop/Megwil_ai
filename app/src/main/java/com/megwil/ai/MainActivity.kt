@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var voiceCallback: ((String) -> Unit)? = null
     private var pendingContactCommand: String? = null
     private var pendingContactCallback: ((String) -> Unit)? = null
+    private var pendingWakeWordStateCallback: ((Boolean) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,15 +81,28 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         if (signedIn.equals(ownerEmail, ignoreCase = true)) startActivity(Intent(this, OwnerDashboardActivity::class.java)) else startGoogleLogin()
                     },
                     onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                    onWakeWordToggle = { enabled ->
+                    onWakeWordToggle = { enabled, reportState ->
+                        pendingWakeWordStateCallback = reportState
                         val serviceIntent = Intent(this, com.megwil.ai.service.WakeWordService::class.java)
-                        if (enabled && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
-                            android.widget.Toast.makeText(this, "Wake word ke liye microphone permission allow karo, phir listening start hogi.", android.widget.Toast.LENGTH_LONG).show()
-                        } else if (enabled) {
-                            ContextCompat.startForegroundService(this, serviceIntent)
-                        } else {
+                        if (!enabled) {
                             stopService(serviceIntent)
+                            reportState(false)
+                            pendingWakeWordStateCallback = null
+                        } else if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 505)
+                        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
+                        } else {
+                            try {
+                                ContextCompat.startForegroundService(this, serviceIntent)
+                                reportState(true)
+                                pendingWakeWordStateCallback = null
+                            } catch (_: Exception) {
+                                reportState(false)
+                                pendingWakeWordStateCallback = null
+                                android.widget.Toast.makeText(this, "Android ne background microphone service start nahi ki. App kholkar dobara try karo.", android.widget.Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 )
@@ -164,12 +178,40 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number)))
             }
         }
+        if (requestCode == 505) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
+                } else {
+                    try {
+                        ContextCompat.startForegroundService(this, Intent(this, com.megwil.ai.service.WakeWordService::class.java))
+                        pendingWakeWordStateCallback?.invoke(true)
+                    } catch (_: Exception) {
+                        pendingWakeWordStateCallback?.invoke(false)
+                        android.widget.Toast.makeText(this, "Wake word service start nahi ho payi.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    pendingWakeWordStateCallback = null
+                }
+            } else {
+                pendingWakeWordStateCallback?.invoke(false)
+                pendingWakeWordStateCallback = null
+                android.widget.Toast.makeText(this, "Wake word notification ke liye notification permission allow karo.", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
         if (requestCode == 504) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                ContextCompat.startForegroundService(this, Intent(this, com.megwil.ai.service.WakeWordService::class.java))
+                try {
+                    ContextCompat.startForegroundService(this, Intent(this, com.megwil.ai.service.WakeWordService::class.java))
+                    pendingWakeWordStateCallback?.invoke(true)
+                } catch (_: Exception) {
+                    pendingWakeWordStateCallback?.invoke(false)
+                    android.widget.Toast.makeText(this, "Android ne microphone service start nahi hone di.", android.widget.Toast.LENGTH_LONG).show()
+                }
             } else {
+                pendingWakeWordStateCallback?.invoke(false)
                 android.widget.Toast.makeText(this, "Microphone permission ke bina wake word nahi chalega.", android.widget.Toast.LENGTH_LONG).show()
             }
+            pendingWakeWordStateCallback = null
         }
         if (requestCode == 501) {
             val callback = voiceCallback
@@ -453,8 +495,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (requestCode == 100) {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
-                if (account?.email.equals(ownerEmail, ignoreCase = true)) {
+                if (account?.email.equals(ownerEmail, ignoreCase = true) && !account?.idToken.isNullOrBlank()) {
                     startActivity(Intent(this, OwnerDashboardActivity::class.java))
+                } else if (account?.email.equals(ownerEmail, ignoreCase = true)) {
+                    android.widget.Toast.makeText(this, "Google ID token nahi mila. Web OAuth Client ID aur SHA-1/package config check karo.", android.widget.Toast.LENGTH_LONG).show()
                 } else {
                     android.widget.Toast.makeText(this, "Owner account required: $ownerEmail", android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -570,7 +614,7 @@ private fun MegwilScreen(
                     Text("Background wake-word listening uses Android speech recognition and an ongoing microphone notification. Start it while MEGWIL is open; tap the MEGWIL notification after it hears the wake word to continue. Battery and network use may increase.", color = Color.LightGray, fontSize = 11.sp)
                     TextButton(onClick = {
                         wakeWordEnabled = !wakeWordEnabled
-                        onWakeWordToggle(wakeWordEnabled)
+                        onWakeWordToggle(wakeWordEnabled) { started -> wakeWordEnabled = started }
                     }) { Text(if (wakeWordEnabled) "STOP WAKE WORD LISTENING" else "START 'MEGWIL' WAKE WORD", color = Cyan) }
                     Text("WHATSAPP ACCESSIBILITY", color = Cyan, fontWeight = FontWeight.Bold)
                     Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein.", color = Color.LightGray, fontSize = 11.sp)
