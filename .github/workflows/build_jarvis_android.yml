@@ -67,7 +67,7 @@ jobs:
           s = s[:m.start()] + '#[cfg(not(target_os = "android"))]\n' + m.group(0) + android_picker + s[m.end():]
 
           # Android builds don't have the desktop system tray.
-tray_pattern = re.compile(r"let show_hide = MenuItemBuilder::with_id")
+          tray_pattern = re.compile(r"let show_hide = MenuItemBuilder::with_id")
           m = tray_pattern.search(s)
           if m:
               # Mark the full setup block from menu creation through tray build.
