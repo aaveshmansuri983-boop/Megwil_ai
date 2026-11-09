@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.content.SharedPreferences
+import android.media.AudioManager
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import android.provider.Settings
@@ -176,6 +177,51 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
         val lower = question.trim().lowercase(Locale.ROOT)
+
+        // Save only facts the user explicitly asks MEGWIL to remember.
+        if (lower.startsWith("remember ") || lower.startsWith("yaad rakhna ") || lower.startsWith("याद रखना ")) {
+            val fact = question.trim().substringAfter(" ", "").trim()
+            if (fact.isBlank()) { done("Kya yaad rakhna hai?"); return }
+            val facts = prefs.getStringSet("long_term_memory", emptySet())?.toMutableSet() ?: mutableSetOf()
+            facts.add(fact)
+            prefs.edit().putStringSet("long_term_memory", facts).apply()
+            done("Theek hai, maine ye baat is phone mein yaad rakh li: " + fact)
+            return
+        }
+        if (lower.contains("what do you remember") || lower.contains("tumhe kya yaad") || lower.contains("meri memory dikhao") || lower.contains("yaad kya hai")) {
+            val facts = prefs.getStringSet("long_term_memory", emptySet()).orEmpty()
+            done(if (facts.isEmpty()) "Abhi long-term memory khaali hai. 'Yaad rakhna ...' bolkar koi baat save kara sakte ho." else "Meri saved memory:\n" + facts.joinToString("\n") { "• " + it })
+            return
+        }
+        if (lower == "forget memory" || lower == "clear memory" || lower == "meri memory bhool jao" || lower == "memory delete karo") {
+            prefs.edit().remove("long_term_memory").apply()
+            done("Is device par save ki hui MEGWIL memory clear kar di.")
+            return
+        }
+
+        // Android permits these controls through public intents/APIs; OS restrictions remain in force.
+        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        if (listOf("volume up", "awaaz badhao", "volume badhao").any { lower.contains(it) }) {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+            done("Media volume badha diya."); return
+        }
+        if (listOf("volume down", "awaaz kam", "volume kam karo").any { lower.contains(it) }) {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+            done("Media volume kam kar diya."); return
+        }
+        val settingsIntent = when {
+            lower.contains("wifi settings") || lower.contains("wi-fi settings") || lower.contains("wifi setting") -> Intent(Settings.ACTION_WIFI_SETTINGS)
+            lower.contains("bluetooth settings") || lower.contains("bluetooth setting") -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+            lower.contains("display settings") || lower.contains("brightness settings") -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
+            lower.contains("sound settings") || lower.contains("audio settings") -> Intent(Settings.ACTION_SOUND_SETTINGS)
+            lower == "phone settings kholo" || lower == "open phone settings" || lower == "settings kholo" || lower == "open settings" -> Intent(Settings.ACTION_SETTINGS)
+            else -> null
+        }
+        if (settingsIntent != null) {
+            try { startActivity(settingsIntent); done("Android settings screen khol diya.") }
+            catch (_: Exception) { done("Ye settings screen is phone par available nahi hai.") }
+            return
+        }
         val prefixes = listOf("chrome par search karo", "chrome me search karo", "search on chrome", "search in chrome", "google par search karo", "google me search karo", "search for", "search karo")
         val prefix = prefixes.firstOrNull { lower.startsWith(it) }
         if (prefix != null) {
@@ -292,7 +338,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (key.isBlank()) { done("Pehle Settings mein apni Groq API key save karo."); return }
         lifecycleScope.launch {
             try {
-                val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Never claim to perform phone actions unless actually completed.")
+                val savedMemory = prefs.getStringSet("long_term_memory", emptySet()).orEmpty().toList()
+                val memoryContext = if (savedMemory.isEmpty()) "" else "\nUser-approved long-term memory (local device): " + savedMemory.joinToString("; ")
+                val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Use the user's saved memory when relevant. Never claim to perform phone actions unless actually completed." + memoryContext)
                 val messages = listOf(system) + history.filter { it.role == "user" || it.role == "assistant" }.takeLast(20)
                 val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("llama-3.3-70b-versatile", messages))
                 done(result.choices.firstOrNull()?.message?.content ?: "Mujhe response nahi mila.")
@@ -444,9 +492,13 @@ private fun MegwilScreen(
                     }
                     Text("Key device ke private app storage mein save hoti hai. API key kisi ke saath share na karein.", color = Color.LightGray, fontSize = 11.sp)
                     Divider(color = Color.DarkGray)
-                    Text("WHATSAPP CONTROL", color = Cyan, fontWeight = FontWeight.Bold)
-                    Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein. Android confirmation aur permissions bypass nahi kiye ja sakte.", color = Color.LightGray, fontSize = 11.sp)
-                    TextButton(onClick = onAccessibilitySettings) { Text("ENABLE WHATSAPP CONTROL", color = Cyan) }
+                    Text("PHONE CONTROL", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Apps kholne, volume badalne/ghatane aur Wi-Fi, Bluetooth, Display ya Sound settings kholne ke liye MEGWIL ko bolo. Calls aur WhatsApp messages hamesha YES/NO confirmation ke baad hi chalenge. Android security restrictions bypass nahi ki ja sakti.", color = Color.LightGray, fontSize = 11.sp)
+                    Text("LONG-TERM MEMORY", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Kisi baat ko save karne ke liye 'Yaad rakhna ...' bolo. 'Meri memory dikhao' se dekho aur 'Memory delete karo' se clear karo. Memory isi phone par local save hoti hai.", color = Color.LightGray, fontSize = 11.sp)
+                    Text("WHATSAPP ACCESSIBILITY", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein.", color = Color.LightGray, fontSize = 11.sp)
+                    TextButton(onClick = onAccessibilitySettings) { Text("ENABLE ACCESSIBILITY CONTROL", color = Cyan) }
                 }
             }
         }
