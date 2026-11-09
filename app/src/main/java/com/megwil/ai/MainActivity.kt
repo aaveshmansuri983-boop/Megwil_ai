@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.provider.ContactsContract
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -64,9 +65,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     savedKey = prefs.getString("groq_key", "") ?: "",
                     savedHistory = loadHistory(),
                     onSaveKey = { prefs.edit().putString("groq_key", it.trim()).apply() },
-                    onAsk = { question, history, done ->
-                        askMegwil(question, history, done)
-                    },
+                    onAsk = { question, history, done -> askMegwil(question, history, done) },
+                    onConfirmAction = { payload -> runConfirmedAction(payload) },
                     onHistoryChanged = { saveHistory(it) },
                     onSpeak = { speak(it) },
                     onListen = { callback -> listen(callback) },
@@ -86,6 +86,58 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun saveHistory(history: List<Message>) {
         prefs.edit().putString("chat_history", Gson().toJson(history.takeLast(100))).apply()
+    }
+
+    private fun findContactNumber(name: String): String? {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 502)
+            return null
+        }
+        contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+            null, null, null)?.use { cursor ->
+            val ni = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            val pi = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (cursor.moveToNext()) {
+                val n = cursor.getString(ni) ?: continue
+                if (n.equals(name, true)) return cursor.getString(pi)
+            }
+        }
+        return null
+    }
+
+    private fun runConfirmedAction(payload: String) {
+        val parts = payload.split("|", limit = 5)
+        if (parts.size < 4) return
+        val kind = parts[1]
+        val number = parts[3].filter { it.isDigit() }
+        val body = parts.getOrElse(4) { "" }
+        if (kind == "phone_call") {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                prefs.edit().putString("pending_call", number).apply()
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CALL_PHONE), 503)
+                return
+            }
+            startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")))
+        } else {
+            val international = if (number.length == 10) "91" + number else number
+            getSharedPreferences("megwil_actions", MODE_PRIVATE).edit()
+                .putString("pending_type", kind).putString("pending_number", international)
+                .putString("pending_message", body).putBoolean("pending_done", false).apply()
+            val link = if (kind == "wa_message") "https://wa.me/" + international + "?text=" + Uri.encode(body) else "https://wa.me/" + international
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 503 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            val number = prefs.getString("pending_call", null)
+            if (!number.isNullOrBlank()) {
+                prefs.edit().remove("pending_call").apply()
+                startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number)))
+            }
+        }
     }
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
@@ -111,6 +163,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 else done(app.first + " phone mein nahi mila.")
                 return
             }
+        }
+        val cmd = Regex("^(.+?) ko (whatsapp )?(call|message|msg|bhejo|phone lagao)[: ]*(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
+        if (cmd != null) {
+            val who = cmd.groupValues[1].trim()
+            val wa = cmd.groupValues[2].isNotBlank() || lower.contains("whatsapp")
+            val verb = cmd.groupValues[3].lowercase(Locale.ROOT)
+            val body = cmd.groupValues[4].trim().removePrefix(":").trim()
+            val number = findContactNumber(who)
+            if (number == null) { done("Contact nahi mila ya Contacts permission nahi hai. Permission do aur dobara bolo."); return }
+            val kind = if (verb.contains("call") || verb.contains("phone")) { if (wa) "wa_call" else "phone_call" } else "wa_message"
+            if (kind == "wa_message" && body.isBlank()) { done("Message ka text bhi bolo."); return }
+            done("CONFIRM_ACTION|" + kind + "|" + who + "|" + number + "|" + body)
+            return
         }
         val phone = Regex("(?:\\+?91[- ]?)?[6-9]\\d{9}").find(question)?.value?.replace(Regex("[^0-9+]"), "")
         if (phone != null && listOf("call", "phone lagao", "call karo", "कॉल", "फोन लगाओ").any { lower.contains(it) }) {
@@ -229,6 +294,7 @@ private fun MegwilScreen(
     onSaveKey: (String) -> Unit,
     onHistoryChanged: (List<Message>) -> Unit,
     onAsk: (String, List<Message>, (String) -> Unit) -> Unit,
+    onConfirmAction: (String) -> Unit,
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit) -> Unit,
     onGoogleLogin: () -> Unit,
@@ -240,6 +306,18 @@ private fun MegwilScreen(
     var busy by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
     var answer by remember { mutableStateOf("Namaste! Main MEGWIL hoon. Groq API key set karke mujhse baat shuru karo.") }
+    var pendingAction by remember { mutableStateOf("") }
+    if (pendingAction.isNotBlank()) {
+        val parts = pendingAction.split("|", limit = 5)
+        val who = parts.getOrElse(2) { "contact" }
+        val kind = parts.getOrElse(1) { "action" }.replace("_", " ")
+        val detail = parts.getOrElse(4) { "" }
+        AlertDialog(onDismissRequest = { pendingAction = "" },
+            title = { Text("MEGWIL confirmation") },
+            text = { Text("Confirm " + kind + " for " + who + "? " + detail) },
+            confirmButton = { TextButton(onClick = { onConfirmAction(pendingAction); pendingAction = "" }) { Text("YES") } },
+            dismissButton = { TextButton(onClick = { pendingAction = "" }) { Text("NO") } })
+    }
     val history = remember { mutableStateListOf<Message>().apply { addAll(savedHistory) } }
 
     Column(Modifier.fillMaxSize().background(Navy).padding(16.dp)) {
@@ -312,9 +390,15 @@ private fun MegwilScreen(
                         onHistoryChanged(history.toList())
                         input = ""; busy = true
                         onAsk(q, history.toList()) { result ->
-                            answer = result
-                            onSpeak(result)
-                            history.add(Message("assistant", result))
+                            if (result.startsWith("CONFIRM_ACTION|")) {
+                                pendingAction = result
+                                answer = "Action confirmation screen khol di hai."
+                                onSpeak(answer)
+                            } else {
+                                answer = result
+                                onSpeak(result)
+                            }
+                            history.add(Message("assistant", answer))
                             onHistoryChanged(history.toList())
                             busy = false
                         }
