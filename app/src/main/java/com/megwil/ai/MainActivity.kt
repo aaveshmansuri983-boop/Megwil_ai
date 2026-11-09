@@ -82,7 +82,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     onWakeWordToggle = { enabled ->
                         val serviceIntent = Intent(this, com.megwil.ai.service.WakeWordService::class.java)
-                        if (enabled) ContextCompat.startForegroundService(this, serviceIntent) else stopService(serviceIntent)
+                        if (enabled && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
+                            android.widget.Toast.makeText(this, "Wake word ke liye microphone permission allow karo, phir listening start hogi.", android.widget.Toast.LENGTH_LONG).show()
+                        } else if (enabled) {
+                            ContextCompat.startForegroundService(this, serviceIntent)
+                        } else {
+                            stopService(serviceIntent)
+                        }
                     }
                 )
             }
@@ -155,6 +162,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (!number.isNullOrBlank()) {
                 prefs.edit().remove("pending_call").apply()
                 startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number)))
+            }
+        }
+        if (requestCode == 504) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                ContextCompat.startForegroundService(this, Intent(this, com.megwil.ai.service.WakeWordService::class.java))
+            } else {
+                android.widget.Toast.makeText(this, "Microphone permission ke bina wake word nahi chalega.", android.widget.Toast.LENGTH_LONG).show()
             }
         }
         if (requestCode == 501) {
