@@ -34,48 +34,64 @@ jobs:
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
           echo "Building the Tauri/Rust JARVIS V3 archive (not MEGWIL additive source)."
 
-          # Android port compatibility patch: keep desktop-only Tauri APIs out of Android builds.
+          # Android port compatibility patch: exclude desktop-only APIs from Android.
           python3 - "$PROJECT" <<'PY'
           from pathlib import Path
-          import sys
+          import re, sys
           root = Path(sys.argv[1]) / "src-tauri/src"
           p = root / "lib.rs"
           s = p.read_text()
-          s = s.replace('use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};\\n', '#[cfg(not(target_os = "android"))]\\nuse tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};\\n')
-          s = s.replace('use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};\\n', '#[cfg(not(target_os = "android"))]\\nuse tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};\\n')
-          s = s.replace('use tauri_plugin_autostart::ManagerExt;\\n', '#[cfg(not(target_os = "android"))]\\nuse tauri_plugin_autostart::ManagerExt;\\n')
-          s = s.replace('const TRAY_ID: &str = "main-tray";\\n', '#[cfg(not(target_os = "android"))]\\nconst TRAY_ID: &str = "main-tray";\\n')
-          s = s.replace('        .decorations(false)\\n        .transparent(true)', '        .transparent(true)')
-          s = s.replace('    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))\\n        .title(&manifest.name)\\n        .inner_size(160.0, 160.0)\\n        .transparent(true)', '    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))\\n        .title(&manifest.name)\\n        .inner_size(160.0, 160.0)\\n        .transparent(true)')
-          # Folder selection is not available on Android; expose a safe no-op command for the UI.
-          s = s.replace('#[tauri::command]\\nasync fn pick_widget_appearance_folder', '#[cfg(not(target_os = "android"))]\\n#[tauri::command]\\nasync fn pick_widget_appearance_folder', 1)
-          needle = '    Some(path_str)\\n}\\n'
-          pos = s.find(needle, s.find('async fn pick_widget_appearance_folder'))
-          if pos < 0: raise SystemExit("could not locate end of folder picker")
-          pos += len(needle)
-          s = s[:pos] + '\\n#[cfg(target_os = "android")]\\n#[tauri::command]\\nasync fn pick_widget_appearance_folder(_id: String, _app: AppHandle) -> Option<String> {\\n    None\\n}\\n' + s[pos:]
-          # Desktop tray tooltip helper is a no-op on Android.
-          s = s.replace('fn set_tray_tooltip(app: &AppHandle, tooltip: &str) {\\n    if let Some(tray) = app.tray_by_id(TRAY_ID) {\\n        let _ = tray.set_tooltip(Some(tooltip));\\n    }\\n}', '#[cfg(not(target_os = "android"))]\\nfn set_tray_tooltip(app: &AppHandle, tooltip: &str) {\\n    if let Some(tray) = app.tray_by_id(TRAY_ID) {\\n        let _ = tray.set_tooltip(Some(tooltip));\\n    }\\n}\\n\\n#[cfg(target_os = "android")]\\nfn set_tray_tooltip(_app: &AppHandle, _tooltip: &str) {}')
-          # Build the common app builder, registering autostart only on desktop.
-          s = s.replace('    tauri::Builder::default()\\n        .plugin(tauri_plugin_autostart::init(\\n            tauri_plugin_autostart::MacosLauncher::LaunchAgent,\\n            None,\\n        ))\\n        .plugin(tauri_plugin_dialog::init())', '    let builder = tauri::Builder::default();\\n    #[cfg(not(target_os = "android"))]\\n    let builder = builder.plugin(tauri_plugin_autostart::init(\\n        tauri_plugin_autostart::MacosLauncher::LaunchAgent, None,\\n    ));\\n\\n    builder\\n        .plugin(tauri_plugin_dialog::init())')
-          # Keep system tray construction desktop-only inside setup.
-          start = '            let show_hide = MenuItemBuilder::with_id("show_hide", "Show/Hide JARVIS").build(app)?;'
-          end = '            tray_builder.build(app)?;'
-          a = s.find(start)
-          b = s.find(end, a)
-          if a < 0 or b < 0: raise SystemExit("could not locate tray setup block")
-          b += len(end)
-          s = s[:a] + '            #[cfg(not(target_os = "android"))]\\n' + '            {\\n' + ''.join('    '+line+'\\n' for line in s[a:b].splitlines()) + '            }' + s[b:]
+          def add_cfg(line, cfg):
+              if line not in s:
+                  raise SystemExit("expected Rust source line missing: " + line)
+              return s.replace(line, cfg + "\n" + line, 1)
+          s = add_cfg("use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};", "#[cfg(not(target_os = \\"android\\"))]")
+          s = add_cfg("use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};", "#[cfg(not(target_os = \\"android\\"))]")
+          s = add_cfg("use tauri_plugin_autostart::ManagerExt;", "#[cfg(not(target_os = \\"android\\"))]")
+          s = add_cfg('const TRAY_ID: &str = "main-tray";', "#[cfg(not(target_os = \\"android\\"))]")
+          s = s.replace("        .decorations(false)\n", "")
+          # Android does not provide the desktop folder picker; retain the command signature.
+          pattern = r"#\[tauri::command\]\s*async fn pick_widget_appearance_folder\(.*?\n\}"
+          m = re.search(pattern, s, re.S)
+          if not m:
+              raise SystemExit("folder picker function not found")
+          desktop_fn = m.group(0)
+          android_fn = '\n#[cfg(target_os = "android")]\n#[tauri::command]\nasync fn pick_widget_appearance_folder(_id: String, _app: AppHandle) -> Option<String> { None }\n'
+          s = s[:m.start()] + '#[cfg(not(target_os = "android"))]\n' + desktop_fn + android_fn + s[m.end():]
+          # Keep the tray helper available to shared call sites.
+          tray = r"fn set_tray_tooltip\(app: &AppHandle, tooltip: &str\) \{\s*if let Some\(tray\) = app\.tray_by_id\(TRAY_ID\) \{\s*let _ = tray\.set_tooltip\(Some\(tooltip\)\);\s*\}\s*\}"
+          m = re.search(tray, s)
+          if m:
+              s = s[:m.start()] + '#[cfg(not(target_os = "android"))]\n' + m.group(0) + '\n#[cfg(target_os = "android")]\nfn set_tray_tooltip(_app: &AppHandle, _tooltip: &str) {}' + s[m.end():]
+          # Register autostart only on desktop.
+          old = '''    tauri::Builder::default()
+          .plugin(tauri_plugin_autostart::init(
+              tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+              None,
+          ))
+          .plugin(tauri_plugin_dialog::init())'''
+          new = '''    let builder = tauri::Builder::default();
+          #[cfg(not(target_os = "android"))]
+          let builder = builder.plugin(tauri_plugin_autostart::init(
+              tauri_plugin_autostart::MacosLauncher::LaunchAgent, None,
+          ));
+          builder.plugin(tauri_plugin_dialog::init())'''
+          if old in s:
+              s = s.replace(old, new, 1)
           p.write_text(s)
-          # Android needs an app-private writable directory fallback.
           p = root / "ipc.rs"
           s = p.read_text()
-          needle = '    #[cfg(windows)]\\n    {'
-          idx = s.find(needle)
-          if idx < 0: raise SystemExit("could not locate windows data-dir branch")
-          android = '    #[cfg(target_os = "android")]\\n    {\\n        let base = std::env::var("HOME").or_else(|_| std::env::var("TMPDIR")).unwrap_or_else(|_| "/data/local/tmp".into());\\n        format!("{}/jarvis", base)\\n    }\\n'
-          s = s[:idx] + android + s[idx:]
-          p.write_text(s)
+          if '#[cfg(target_os = "android")]' not in s:
+              needle = '    #[cfg(windows)]'
+              idx = s.find(needle)
+              if idx < 0: raise SystemExit("windows data-dir branch not found")
+              s = s[:idx] + '''    #[cfg(target_os = "android")]
+              {
+                  let base = std::env::var("HOME").or_else(|_| std::env::var("TMPDIR")).unwrap_or_else(|_| "/data/local/tmp".into());
+                  format!("{}/jarvis", base)
+              }
+          ''' + s[idx:]
+              p.write_text(s)
           PY
 
 
