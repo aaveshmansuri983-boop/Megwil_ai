@@ -55,10 +55,13 @@ p.write_text(s)
 # Fix the Room DAO query so its command parameter is actually used.
 p = src / "graphify/nodes/TaskNodeDao.kt"
 s = p.read_text()
-s = s.replace('SELECT * FROM task_nodes ORDER BY timestamp DESC LIMIT :limit",\n    suspend fun getTasksByCommand', "SELECT * FROM task_nodes WHERE command LIKE '%' || :command || '%' ORDER BY timestamp DESC LIMIT :limit",\n    suspend fun getTasksByCommand")
-if "WHERE command LIKE" not in s:
+old = '''@Query("SELECT * FROM task_nodes ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getTasksByCommand'''
+new = '''@Query("SELECT * FROM task_nodes WHERE command LIKE '%' || :command || '%' ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getTasksByCommand'''
+if old not in s:
     raise SystemExit("TaskNodeDao query patch failed")
-p.write_text(s)
+p.write_text(s.replace(old, new, 1))
 
 # Map domain automation schedules to Room columns and back.
 p = src / "automation/AutomationManager.kt"
