@@ -1,4 +1,4 @@
-package com.megwil.ai.ui.theme
+package com.megwil.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme

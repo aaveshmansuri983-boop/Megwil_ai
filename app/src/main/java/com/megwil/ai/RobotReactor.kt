@@ -1,4 +1,4 @@
-package com.megwil.ai
+package com.megwil
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas

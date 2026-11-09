@@ -1,4 +1,4 @@
-package com.megwil.ai
+package com.megwil
 
 import android.app.Application
 

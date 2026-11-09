@@ -2,7 +2,7 @@ name: Build MEGWIL AI APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feature/phone-control-long-memory" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -41,6 +41,108 @@ jobs:
           JARVIS_OWNER_GMAIL: ${{ secrets.MEGWIL_OWNER_GMAIL }}
         run: gradle assembleDebug --no-daemon
 
+      - name: Show debug APK signing fingerprint
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK"
+
+      - name: Prepare cloud smoke-test script
+        run: |
+          cat > "$GITHUB_WORKSPACE/megwil-cloud-smoke-test.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+          SCREENSHOT="$GITHUB_WORKSPACE/megwil-home.png"
+          LOGCAT="$GITHUB_WORKSPACE/megwil-logcat.txt"
+
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "APK expected at: $APK"
+          ls -lh "$GITHUB_WORKSPACE/app/build/outputs/apk/debug/"
+          test -s "$APK"
+
+          # Wait until Android has fully booted and Package Manager responds.
+          adb wait-for-device
+          boot_ready=0
+          for attempt in $(seq 1 18); do
+            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" = "1" ] && adb shell cmd package list packages >/dev/null 2>&1; then
+              boot_ready=1
+              break
+            fi
+            echo "Android/Package Manager not ready yet (attempt $attempt/18)"
+            sleep 5
+          done
+          if [ "$boot_ready" -ne 1 ]; then
+            echo "Android did not become ready for package installation."
+            adb shell getprop sys.boot_completed || true
+            adb logcat -d -t 1200 | tail -n 250 || true
+            exit 1
+          fi
+
+          # Avoid streamed-install pipe failures; retry transient emulator service errors.
+          install_ok=0
+          for attempt in $(seq 1 3); do
+            echo "Installing MEGWIL APK (attempt $attempt/3)"
+            if adb install --no-streaming -r "$APK"; then
+              install_ok=1
+              break
+            fi
+            echo "APK install failed; checking Package Manager before retry."
+            adb shell cmd package list packages >/dev/null 2>&1 || true
+            sleep 10
+          done
+          if [ "$install_ok" -ne 1 ]; then
+            echo "MEGWIL APK installation failed after 3 attempts."
+            adb logcat -d -t 2000 | tail -n 350 || true
+            exit 1
+          fi
+
+          adb shell am force-stop com.megwil || true
+          adb shell am start -W -n com.megwil/.MainActivity
+
+          # Wait for the actual Compose home screen, not merely a live process
+          # or Android's launch splash screen. First cold start can be slow on CI.
+          ui_ready=0
+          for attempt in $(seq 1 24); do
+            adb shell uiautomator dump /sdcard/megwil-window.xml >/dev/null 2>&1 || true
+            UI_XML="$(adb shell cat /sdcard/megwil-window.xml 2>/dev/null | tr -d '\\r' || true)"
+            if printf '%s' "$UI_XML" | grep -qi 'MEGWIL AI' &&
+               printf '%s' "$UI_XML" | grep -Eqi 'CONVERSATION|Ask MEGWIL anything' &&
+               printf '%s' "$UI_XML" | grep -Eqi 'GOOGLE LOGIN|SEND|VOICE'; then
+              ui_ready=1
+              echo "MEGWIL home screen and primary controls are visible."
+              break
+            fi
+            echo "Waiting for MEGWIL Compose home UI (attempt $attempt/24)..."
+            sleep 5
+          done
+
+          if [ "$ui_ready" -ne 1 ]; then
+            echo "MEGWIL home UI did not become visible; refusing to mark splash-only launch as passed."
+            echo "Last UI hierarchy:"
+            printf '%s\\n' "$UI_XML" | head -c 12000 || true
+            adb logcat -d -t 5000 > "$LOGCAT"
+            tail -n 350 "$LOGCAT" || true
+            exit 1
+          fi
+
+          adb shell pidof com.megwil
+          adb shell input keyevent 82 || true
+          sleep 2
+          adb exec-out screencap -p > "$SCREENSHOT"
+          test -s "$SCREENSHOT"
+          file "$SCREENSHOT"
+
+          adb logcat -d -t 5000 > "$LOGCAT"
+          if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" "$LOGCAT"; then
+            exit 1
+          fi
+          EOF
+          chmod +x "$GITHUB_WORKSPACE/megwil-cloud-smoke-test.sh"
+
       - name: Boot cloud Android emulator and smoke-test MEGWIL
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -50,52 +152,10 @@ jobs:
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim
           disable-animations: true
-          script: |
-            set -eu
-            APK="app/build/outputs/apk/debug/app-debug.apk"
-            test -s "$APK"
-
-            adb wait-for-device
-            adb install -r "$APK"
-            adb shell am force-stop com.megwil.ai || true
-            adb shell am start -n com.megwil.ai/.MainActivity
-
-            # Give Android time to render the first screen without blocking on
-            # ActivityManager's occasionally unreliable -W launch timeout.
-            for attempt in $(seq 1 12); do
-              if adb shell pidof com.megwil.ai | tr -d '\r' | grep -q '[0-9]'; then
-                break
-              fi
-              sleep 2
-            done
-            adb shell pidof com.megwil.ai
-
-            # Re-establish the emulator transport before capturing evidence.
-            adb reconnect device || true
-            adb wait-for-device
-            adb shell input keyevent 82 || true
-            sleep 3
-
-            # Stream the screenshot directly to the runner; retry transient ADB drops.
-            captured=false
-            for attempt in 1 2 3; do
-              if adb exec-out screencap -p > megwil-home.png && test -s megwil-home.png; then
-                captured=true
-                break
-              fi
-              adb reconnect device || true
-              sleep 3
-              adb wait-for-device
-            done
-            test "$captured" = true
-            file megwil-home.png
-
-            adb logcat -d -t 5000 > megwil-logcat.txt
-            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" megwil-logcat.txt; then
-              exit 1
-            fi
+          script: bash "$GITHUB_WORKSPACE/megwil-cloud-smoke-test.sh"
 
       - name: Upload APK and cloud phone test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MegwilAI-Cloud-Test
@@ -103,5 +163,5 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             megwil-home.png
             megwil-logcat.txt
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14

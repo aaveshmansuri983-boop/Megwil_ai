@@ -1,4 +1,4 @@
-package com.megwil.ai.ui.dashboard
+package com.megwil.ui.dashboard
 
 import android.Manifest
 import android.content.Intent
@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.megwil.ai.BuildConfig
+import com.megwil.BuildConfig
 
 private val Cyan = Color(0xFF00E5FF)
 private val Navy = Color(0xFF070B14)
@@ -38,6 +38,7 @@ class OwnerDashboardActivity : ComponentActivity() {
         }
 
         val prefs = getSharedPreferences("megwil_secure_settings", MODE_PRIVATE)
+        val memoryFacts = prefs.getStringSet("long_term_memory", emptySet()).orEmpty().toList().sorted()
         val groqReady = !prefs.getString("groq_key", "").isNullOrBlank()
         val micReady = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val contactsReady = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
@@ -54,11 +55,12 @@ class OwnerDashboardActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text("MEGWIL • OWNER CONSOLE", color = Cyan, fontSize = 23.sp)
-                        Text("OWNER VERIFIED", color = Color(0xFF62E6A7), fontSize = 11.sp)
+                        Text("LOCAL OWNER CHECK ONLY", color = Color(0xFFFFC266), fontSize = 11.sp)
                         Text(ownerEmail, color = Color.White)
                         Divider(color = Color.DarkGray)
                         Text("LIVE DEVICE STATUS", color = Cyan)
                         StatusLine("Groq AI key", groqReady, if (groqReady) "Saved on this device" else "Not configured")
+                        StatusLine("Long-term memory", memoryFacts.isNotEmpty(), "${memoryFacts.size} saved facts on this device")
                         StatusLine("Microphone", micReady, if (micReady) "Permission granted" else "Permission missing")
                         StatusLine("Contacts", contactsReady, if (contactsReady) "Permission granted" else "Permission missing")
                         StatusLine("Phone calls", callReady, if (callReady) "Permission granted" else "Permission missing")
@@ -79,8 +81,22 @@ class OwnerDashboardActivity : ComponentActivity() {
                             prefs.edit().remove("chat_history").apply()
                             Toast.makeText(this@OwnerDashboardActivity, "Saved chat history cleared.", Toast.LENGTH_SHORT).show()
                         }
+                        if (memoryFacts.isNotEmpty()) {
+                            Text("SAVED LONG-TERM MEMORY", color = Cyan, fontSize = 12.sp)
+                            memoryFacts.take(10).forEach { fact ->
+                                Text("• " + fact, color = Color.LightGray, fontSize = 12.sp)
+                            }
+                            if (memoryFacts.size > 10) {
+                                Text("And ${memoryFacts.size - 10} more saved facts", color = Color.LightGray, fontSize = 11.sp)
+                            }
+                        }
+                        ActionButton("CLEAR LONG-TERM MEMORY") {
+                            prefs.edit().remove("long_term_memory").apply()
+                            Toast.makeText(this@OwnerDashboardActivity, "Long-term memory cleared.", Toast.LENGTH_SHORT).show()
+                            recreate()
+                        }
                         Text("SECURITY NOTE", color = Cyan, fontSize = 12.sp)
-                        Text("Dashboard access is checked against the signed-in Google email on this device. This is a local UI gate, not server-side authorization. No user-management or remote admin controls exist because MEGWIL has no admin backend.", color = Color.LightGray, fontSize = 12.sp)
+                        Text("SECURITY LIMIT: Google email matching happens only inside this app. It is not server-side identity verification and must not protect private cloud data or privileged remote actions. A trusted backend with verified Google ID tokens and owner authorization is still required; no backend credentials or server are configured in this project.", color = Color.LightGray, fontSize = 12.sp)
                         Text("Android controls microphone access. MEGWIL cannot grant permanent background microphone permission or bypass Android restrictions.", color = Color.LightGray, fontSize = 12.sp)
                         Button(onClick = { finish() }) { Text("BACK TO MEGWIL") }
                     }
@@ -92,7 +108,7 @@ class OwnerDashboardActivity : ComponentActivity() {
     private fun isMegwilAccessibilityEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
         return enabled.split(':').any { it.contains("$packageName/.service.MegwilAccessibilityService", true) ||
-            it.contains("$packageName/com.megwil.ai.service.MegwilAccessibilityService", true) }
+            it.contains("$packageName/com.megwil.service.MegwilAccessibilityService", true) }
     }
 }
 

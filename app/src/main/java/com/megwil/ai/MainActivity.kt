@@ -1,9 +1,11 @@
-package com.megwil.ai
+package com.megwil
 
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.content.SharedPreferences
+import android.media.AudioManager
+import android.hardware.camera2.CameraManager
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import android.provider.Settings
@@ -36,11 +38,11 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
-import com.megwil.ai.data.GroqApiClient
-import com.megwil.ai.data.GroqRequest
-import com.megwil.ai.data.Message
-import com.megwil.ai.ui.dashboard.OwnerDashboardActivity
-import com.megwil.ai.ui.theme.MegwilAITheme
+import com.megwil.data.GroqApiClient
+import com.megwil.data.GroqRequest
+import com.megwil.data.Message
+import com.megwil.ui.dashboard.OwnerDashboardActivity
+import com.megwil.ui.theme.MegwilAITheme
 import kotlinx.coroutines.launch
 import java.util.Locale
 import com.google.gson.Gson
@@ -57,6 +59,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var voiceCallback: ((String) -> Unit)? = null
     private var pendingContactCommand: String? = null
     private var pendingContactCallback: ((String) -> Unit)? = null
+    private var pendingWakeWordStateCallback: ((Boolean) -> Unit)? = null
+    private var flashlightEnabled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,8 +82,58 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         val signedIn = GoogleSignIn.getLastSignedInAccount(this)?.email
                         if (signedIn.equals(ownerEmail, ignoreCase = true)) startActivity(Intent(this, OwnerDashboardActivity::class.java)) else startGoogleLogin()
                     },
-                    onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                    onAccessibilitySettings = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                    onWakeWordToggle = { enabled, reportState ->
+                        pendingWakeWordStateCallback = reportState
+                        val serviceIntent = Intent(this, com.megwil.service.WakeWordService::class.java)
+                        if (!enabled) {
+                            stopService(serviceIntent)
+                            reportState(false)
+                            pendingWakeWordStateCallback = null
+                        } else if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 505)
+                        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
+                        } else {
+                            try {
+                                ContextCompat.startForegroundService(this, serviceIntent)
+                                reportState(true)
+                                pendingWakeWordStateCallback = null
+                            } catch (_: Exception) {
+                                reportState(false)
+                                pendingWakeWordStateCallback = null
+                                android.widget.Toast.makeText(this, "Android ne background microphone service start nahi ki. App kholkar dobara try karo.", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
                 )
+            }
+        }
+        if (intent?.getBooleanExtra(EXTRA_WAKE_WORD, false) == true) {
+            window.decorView.post { startWakeWordConversation() }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.getBooleanExtra(EXTRA_WAKE_WORD, false) == true) {
+            startWakeWordConversation()
+        }
+    }
+
+    private fun startWakeWordConversation() {
+        speak("Haan, boliye. MEGWIL sun raha hai.")
+        listen { spoken ->
+            if (spoken.startsWith("Voice input", true) || spoken.startsWith("Microphone", true)) {
+                speak(spoken)
+                return@listen
+            }
+            val previous = loadHistory()
+            askMegwil(spoken, previous) { reply ->
+                saveHistory(previous + Message("user", spoken) + Message("assistant", reply))
+                speak(reply)
             }
         }
     }
@@ -93,6 +147,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun saveHistory(history: List<Message>) {
         prefs.edit().putString("chat_history", Gson().toJson(history.takeLast(100))).apply()
+    }
+
+    private fun loadQuickNotes(): List<String> {
+        return try {
+            Gson().fromJson(prefs.getString("quick_notes_json", "[]"), object : TypeToken<List<String>>() {}.type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun saveQuickNotes(notes: List<String>) {
+        prefs.edit().putString("quick_notes_json", Gson().toJson(notes.takeLast(100))).apply()
     }
 
     private fun findContactNumbers(name: String): List<String> {
@@ -124,7 +188,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val kind = parts[1]
         val number = parts[3].filter { it.isDigit() }
         val body = parts.getOrElse(4) { "" }
-        if (kind == "phone_call") {
+        if (kind == "sms_compose") {
+            val smsIntent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + number))
+                .putExtra("sms_body", body)
+            try { startActivity(smsIntent) }
+            catch (_: Exception) { android.widget.Toast.makeText(this, "SMS app available nahi hai.", android.widget.Toast.LENGTH_LONG).show() }
+        } else if (kind == "phone_call") {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
                 prefs.edit().putString("pending_call", number).apply()
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CALL_PHONE), 503)
@@ -152,6 +221,41 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number)))
             }
         }
+        if (requestCode == 505) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 504)
+                } else {
+                    try {
+                        ContextCompat.startForegroundService(this, Intent(this, com.megwil.service.WakeWordService::class.java))
+                        pendingWakeWordStateCallback?.invoke(true)
+                    } catch (_: Exception) {
+                        pendingWakeWordStateCallback?.invoke(false)
+                        android.widget.Toast.makeText(this, "Wake word service start nahi ho payi.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    pendingWakeWordStateCallback = null
+                }
+            } else {
+                pendingWakeWordStateCallback?.invoke(false)
+                pendingWakeWordStateCallback = null
+                android.widget.Toast.makeText(this, "Wake word notification ke liye notification permission allow karo.", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        if (requestCode == 504) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    ContextCompat.startForegroundService(this, Intent(this, com.megwil.service.WakeWordService::class.java))
+                    pendingWakeWordStateCallback?.invoke(true)
+                } catch (_: Exception) {
+                    pendingWakeWordStateCallback?.invoke(false)
+                    android.widget.Toast.makeText(this, "Android ne microphone service start nahi hone di.", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } else {
+                pendingWakeWordStateCallback?.invoke(false)
+                android.widget.Toast.makeText(this, "Microphone permission ke bina wake word nahi chalega.", android.widget.Toast.LENGTH_LONG).show()
+            }
+            pendingWakeWordStateCallback = null
+        }
         if (requestCode == 501) {
             val callback = voiceCallback
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && callback != null) {
@@ -176,6 +280,273 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
         val lower = question.trim().lowercase(Locale.ROOT)
+        // Offline calculator: supports +, -, *, /, parentheses and decimals.
+        val calcMatch = Regex("(?i)^(?:calculate|calc|hisab|गणना(?: करो)?)\\s+(.+)$").find(question.trim())
+        if (calcMatch != null) {
+            try {
+                val value = BasicCalculator(calcMatch.groupValues[1]).parse()
+                if (!value.isFinite()) throw IllegalArgumentException("Result is not finite")
+                val formatted = java.text.DecimalFormat("0.##########").format(value)
+                done("Result: " + formatted)
+            } catch (_: Exception) {
+                done("Calculation samajh nahi aayi. Example: calculate (25 + 5) * 2")
+            }
+            return
+        }
+
+        // Private quick notes stored locally on this device.
+        val noteText = Regex("(?i)^(?:save note|note save|note likho|नोट लिखो)[: ]+(.+)$").find(question.trim())?.groupValues?.get(1)?.trim()
+        if (noteText != null) {
+            val notes = loadQuickNotes().toMutableList()
+            notes.add(noteText)
+            saveQuickNotes(notes)
+            done("Note phone mein save kar diya. Total notes: " + notes.size)
+            return
+        }
+        if (listOf("show notes", "list notes", "mere notes", "notes dikhao", "नोट दिखाओ").any { lower.contains(it) }) {
+            val notes = loadQuickNotes()
+            done(if (notes.isEmpty()) "Abhi koi quick note saved nahi hai." else "Tumhare notes:\n" + notes.mapIndexed { index, note -> (index + 1).toString() + ". " + note }.joinToString("\n"))
+            return
+        }
+        if (listOf("delete all notes", "clear notes", "saare notes delete", "notes hatao", "सारे नोट हटाओ").any { lower.contains(it) }) {
+            saveQuickNotes(emptyList())
+            done("Saare quick notes delete kar diye.")
+            return
+        }
+
+        // Calendar event draft; Android Calendar asks the user to review and save it.
+        val eventTitle = Regex("(?i)^(?:calendar event|event banao|calendar mein event)[: ]+(.+)$")
+            .find(question.trim())?.groupValues?.get(1)?.trim()
+        if (eventTitle != null) {
+            try {
+                val eventIntent = Intent(Intent.ACTION_INSERT).setData(android.provider.CalendarContract.Events.CONTENT_URI)
+                    .putExtra(android.provider.CalendarContract.Events.TITLE, eventTitle)
+                startActivity(eventIntent)
+                done("Calendar mein event draft khol diya. Date/time check karke Save dabao.")
+            } catch (_: Exception) {
+                done("Calendar app available nahi hai. Phone mein calendar app install ya enable karo.")
+            }
+            return
+        }
+
+        // Share the previous assistant answer or user-supplied text via Android's share sheet.
+        if (lower == "share last answer" || lower == "share previous answer" || lower == "mera last jawab share karo") {
+            val textToShare = history.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+            if (textToShare.isBlank()) { done("Share karne ke liye abhi koi previous MEGWIL answer nahi hai."); return }
+            try {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, textToShare), "Share MEGWIL answer"))
+                done("Share sheet khol di. App select karke khud share confirm karo.")
+            } catch (_: Exception) { done("Share option abhi available nahi hai.") }
+            return
+        }
+        val shareText = Regex("(?i)^(?:share|share this)[: ]+(.+)$").find(question.trim())?.groupValues?.get(1)?.trim()
+        if (shareText != null) {
+            try {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shareText), "Share with"))
+                done("Share sheet khol di. Bhejne se pehle content check kar lena.")
+            } catch (_: Exception) { done("Share option abhi available nahi hai.") }
+            return
+        }
+
+        // Clipboard copy; Android shows its own clipboard privacy indicator.
+        if (lower == "copy last answer" || lower == "copy previous answer" || lower == "last answer copy karo") {
+            val textToCopy = history.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+            if (textToCopy.isBlank()) { done("Copy karne ke liye previous MEGWIL answer nahi mila."); return }
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MEGWIL answer", textToCopy))
+            done("Pichhla MEGWIL answer clipboard mein copy kar diya.")
+            return
+        }
+        val copyText = Regex("(?i)^(?:copy|copy text)[: ]+(.+)$").find(question.trim())?.groupValues?.get(1)?.trim()
+        if (copyText != null) {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MEGWIL text", copyText))
+            done("Text clipboard mein copy kar diya.")
+            return
+        }
+
+        // Open a requested website without treating arbitrary text as an executable URI.
+        val website = Regex("(?i)^(?:open website|open site|website kholo|site kholo)[: ]+(.+)$")
+            .find(question.trim())?.groupValues?.get(1)?.trim()
+        if (website != null) {
+            val knownSites = mapOf("youtube" to "https://www.youtube.com", "google" to "https://www.google.com",
+                "instagram" to "https://www.instagram.com", "facebook" to "https://www.facebook.com",
+                "whatsapp web" to "https://web.whatsapp.com")
+            val target = knownSites[website.lowercase(Locale.ROOT)] ?: run {
+                val candidate = if (website.startsWith("http://", true) || website.startsWith("https://", true)) website else "https://" + website
+                val parsed = Uri.parse(candidate)
+                if (parsed.scheme !in listOf("http", "https") || parsed.host.isNullOrBlank()) null else candidate
+            }
+            if (target == null) { done("Valid website bolo, jaise: open website youtube.com"); return }
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+                done("Website khol di: " + target)
+            } catch (_: Exception) { done("Is website ko kholne ke liye browser available nahi hai.") }
+            return
+        }
+
+        // Report device data-partition storage; no broad file access permission is needed.
+        if (listOf("storage info", "phone storage", "storage kitni", "memory space", "स्टोरेज").any { lower.contains(it) }) {
+            try {
+                val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+                val totalGb = stat.totalBytes / (1024.0 * 1024.0 * 1024.0)
+                val freeGb = stat.availableBytes / (1024.0 * 1024.0 * 1024.0)
+                val fmt = java.text.DecimalFormat("0.0")
+                done("Internal data storage: " + fmt.format(freeGb) + " GB free out of " + fmt.format(totalGb) + " GB.")
+            } catch (_: Exception) { done("Storage information abhi read nahi ho payi.") }
+            return
+        }
+
+
+        // Live device date and time; computed on demand so the answer is current.
+        if (listOf("what time", "time now", "current time", "kitne baje", "abhi time", "samay batao", "समय बताओ", "कितने बजे").any { lower.contains(it) }) {
+            val now = java.util.Date()
+            val time = java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(now)
+            val date = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(now)
+            done("Abhi $time hai. Aaj $date hai.")
+            return
+        }
+        if (listOf("today's date", "todays date", "date today", "aaj ki date", "aaj ki tarikh", "आज की तारीख", "तारीख बताओ").any { lower.contains(it) }) {
+            val date = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(java.util.Date())
+            done("Aaj $date hai.")
+            return
+        }
+
+        // Battery level and charging state from Android's sticky battery broadcast.
+        if (listOf("battery", "charge kitna", "charging status", "बैटरी", "चार्ज कितना").any { lower.contains(it) }) {
+            val battery = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            if (battery == null) { done("Battery status abhi read nahi ho paya."); return }
+            val level = battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+            val scale = battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+            val status = battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
+            if (level < 0 || scale <= 0) { done("Battery percentage available nahi hai."); return }
+            val percent = (level * 100 / scale)
+            val charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+            done("Battery $percent percent hai. " + if (charging) "Phone charging par hai." else "Phone abhi charging par nahi hai.")
+            return
+        }
+
+        // Relative voice reminder: hand scheduling to Android Clock for user confirmation.
+        val relativeReminder = Regex(
+            "(?:remind me in|remind me after|mujhe)\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|hours?|घंटे?|मिनट|सेकंड)\\s*(?:baad|to|ki)?\\s*(.*)",
+            RegexOption.IGNORE_CASE
+        ).find(question.trim())
+        if (relativeReminder != null && (lower.contains("remind") || lower.contains("yaad dilana") || lower.startsWith("mujhe "))) {
+            val amount = relativeReminder.groupValues[1].toIntOrNull() ?: 0
+            val unit = relativeReminder.groupValues[2].lowercase(Locale.ROOT)
+            val task = relativeReminder.groupValues[3].replace(Regex("(?i)^(to|ki|yaad dilana)\\s*"), "").trim()
+            val seconds = when {
+                unit.startsWith("hour") || unit.startsWith("घंटा") -> amount * 3600
+                unit.startsWith("min") || unit.startsWith("मिनट") -> amount * 60
+                else -> amount
+            }
+            if (amount <= 0 || seconds <= 0) { done("Reminder ka time valid nahi hai."); return }
+            try {
+                startActivity(Intent(android.provider.AlarmClock.ACTION_SET_TIMER)
+                    .putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, if (task.isBlank()) "MEGWIL reminder" else "MEGWIL: $task")
+                    .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false))
+                done("Reminder timer ready hai: $amount $unit" + if (task.isBlank()) ". Clock app mein confirm kar dena." else " baad: $task. Clock app mein confirm kar dena.")
+            } catch (_: Exception) { done("Is phone par Clock reminder/timer available nahi hai.") }
+            return
+        }
+        val timedReminder = Regex(
+            "(?:remind me at|reminder at|mujhe)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\s*(?:to|ki)?\\s*(.*)",
+            RegexOption.IGNORE_CASE
+        ).find(question.trim())
+        if (timedReminder != null && (lower.contains("remind") || lower.contains("reminder") || lower.contains("yaad"))) {
+            var hour = timedReminder.groupValues[1].toIntOrNull() ?: -1
+            val minute = timedReminder.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: 0
+            val meridiem = timedReminder.groupValues[3].lowercase(Locale.ROOT)
+            if (meridiem == "pm" && hour in 1..11) hour += 12
+            if (meridiem == "am" && hour == 12) hour = 0
+            if (hour !in 0..23 || minute !in 0..59) { done("Reminder ka time valid nahi hai."); return }
+            val task = timedReminder.groupValues[4].trim().ifBlank { "MEGWIL reminder" }
+            try {
+                startActivity(Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+                    .putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "MEGWIL: $task")
+                    .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false))
+                done("Reminder alarm ready hai: " + hour + ":" + minute.toString().padStart(2, '0') + " — " + task + ". Clock app mein save confirm kar dena.")
+            } catch (_: Exception) { done("Is phone par alarm/reminder app available nahi hai.") }
+            return
+        }
+
+        // Save only facts the user explicitly asks MEGWIL to remember.
+        if (lower.startsWith("remember ") || lower.startsWith("yaad rakhna ") || lower.startsWith("याद रखना ")) {
+            val fact = Regex("(?i)^(remember|yaad\\s+rakhna|याद\\s+रखना)\\s+").replaceFirst(question.trim(), "").trim()
+            if (fact.isBlank()) { done("Kya yaad rakhna hai?"); return }
+            val facts = prefs.getStringSet("long_term_memory", emptySet())?.toMutableSet() ?: mutableSetOf()
+            facts.add(fact)
+            while (facts.size > 100) facts.remove(facts.first())
+            prefs.edit().putStringSet("long_term_memory", facts).apply()
+            done("Theek hai, maine ye baat is phone mein yaad rakh li: " + fact)
+            return
+        }
+        val forgetPrefix = listOf("forget ", "bhool jao ", "ye baat bhool jao ").firstOrNull { lower.startsWith(it) }
+        if (forgetPrefix != null) {
+            val target = question.trim().substring(forgetPrefix.length).trim()
+            if (target.isBlank()) { done("Kaunsi baat memory se hatani hai?"); return }
+            val facts = prefs.getStringSet("long_term_memory", emptySet())?.toMutableSet() ?: mutableSetOf()
+            val removed = facts.removeAll { it.equals(target, ignoreCase = true) }
+            prefs.edit().putStringSet("long_term_memory", facts).apply()
+            done(if (removed) "Theek hai, ye baat local memory se hata di." else "Ye baat saved memory mein nahi mili.")
+            return
+        }
+        if (lower.contains("what do you remember") || lower.contains("tumhe kya yaad") || lower.contains("meri memory dikhao") || lower.contains("yaad kya hai")) {
+            val facts = prefs.getStringSet("long_term_memory", emptySet()).orEmpty()
+            done(if (facts.isEmpty()) "Abhi long-term memory khaali hai. 'Yaad rakhna ...' bolkar koi baat save kara sakte ho." else "Meri saved memory:\n" + facts.joinToString("\n") { "• " + it })
+            return
+        }
+        if (lower == "forget memory" || lower == "clear memory" || lower == "meri memory bhool jao" || lower == "memory delete karo") {
+            prefs.edit().remove("long_term_memory").apply()
+            done("Is device par save ki hui MEGWIL memory clear kar di.")
+            return
+        }
+
+        // Flashlight control through Android CameraManager.
+        if (listOf("flashlight on", "torch on", "torch chalu", "flash chalu", "flashlight off", "torch off", "torch band", "flash band", "टॉर्च चालू", "टॉर्च बंद").any { lower.contains(it) }) {
+            val turnOn = listOf("off", "band", "बंद").none { lower.contains(it) }
+            try {
+                val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+                val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+                    cameraManager.getCameraCharacteristics(id).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                }
+                if (cameraId == null) { done("Is phone mein flashlight available nahi hai."); return }
+                cameraManager.setTorchMode(cameraId, turnOn)
+                flashlightEnabled = turnOn
+                done(if (turnOn) "Flashlight on kar di." else "Flashlight off kar di.")
+            } catch (e: Exception) {
+                done("Flashlight control nahi ho paya: " + (e.localizedMessage ?: "Android restriction"))
+            }
+            return
+        }
+
+        // Android permits these controls through public intents/APIs; OS restrictions remain in force.
+        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        if (listOf("volume up", "awaaz badhao", "volume badhao").any { lower.contains(it) }) {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+            done("Media volume badha diya."); return
+        }
+        if (listOf("volume down", "awaaz kam", "volume kam karo").any { lower.contains(it) }) {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+            done("Media volume kam kar diya."); return
+        }
+        val settingsIntent = when {
+            lower.contains("wifi settings") || lower.contains("wi-fi settings") || lower.contains("wifi setting") -> Intent(Settings.ACTION_WIFI_SETTINGS)
+            lower.contains("bluetooth settings") || lower.contains("bluetooth setting") -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+            lower.contains("display settings") || lower.contains("brightness settings") -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
+            lower.contains("sound settings") || lower.contains("audio settings") -> Intent(Settings.ACTION_SOUND_SETTINGS)
+            lower == "phone settings kholo" || lower == "open phone settings" || lower == "settings kholo" || lower == "open settings" -> Intent(Settings.ACTION_SETTINGS)
+            else -> null
+        }
+        if (settingsIntent != null) {
+            try { startActivity(settingsIntent); done("Android settings screen khol diya.") }
+            catch (_: Exception) { done("Ye settings screen is phone par available nahi hai.") }
+            return
+        }
         val prefixes = listOf("chrome par search karo", "chrome me search karo", "search on chrome", "search in chrome", "google par search karo", "google me search karo", "search for", "search karo")
         val prefix = prefixes.firstOrNull { lower.startsWith(it) }
         if (prefix != null) {
@@ -226,6 +597,22 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             done("Maps navigation khol di: " + destination)
             return
         }
+        val youtubePrefixes = listOf("youtube par ", "youtube me ", "youtube mein ", "youtube search ", "play on youtube ", "youtube kholo ")
+        val youtubePrefix = youtubePrefixes.firstOrNull { lower.startsWith(it) }
+        if (youtubePrefix != null) {
+            val query = question.trim().substring(youtubePrefix.length).replace(Regex("(?i)\\s*(chalao|play karo|search karo)$"), "").trim()
+            if (query.isBlank()) { done("YouTube par kya chalana hai?"); return }
+            val searchUri = Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query))
+            val youtubeIntent = Intent(Intent.ACTION_VIEW, searchUri).setPackage("com.google.android.youtube")
+            try {
+                startActivity(youtubeIntent)
+                done("YouTube par search khol diya: " + query)
+            } catch (_: Exception) {
+                startActivity(Intent(Intent.ACTION_VIEW, searchUri))
+                done("YouTube search browser mein khol diya: " + query)
+            }
+            return
+        }
         if (lower.startsWith("weather ") || lower.startsWith("mausam ") || lower.contains("weather in ") || lower.contains("mausam batao")) {
             val place = question.substringAfter("weather in ", question.substringAfter("weather ", question.substringAfter("mausam ", ""))).trim().removeSuffix("batao").trim()
             val query = if (place.isBlank()) "weather today" else "weather in " + place
@@ -237,12 +624,42 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (lower.startsWith("open ") || lower.startsWith("kholo ")) {
             val target = lower.removePrefix("open ").removePrefix("kholo ").trim()
             val app = appMap.firstOrNull { target.contains(it.first) }
-            if (app != null) {
-                val launch = packageManager.getLaunchIntentForPackage(app.second)
-                if (launch != null) { startActivity(launch); done(app.first + " khol diya."); }
-                else done(app.first + " phone mein nahi mila.")
+            val knownLaunch = app?.let { packageManager.getLaunchIntentForPackage(it.second) }
+            if (knownLaunch != null) {
+                startActivity(knownLaunch)
+                done(app!!.first + " khol diya.")
                 return
             }
+            val installedMatch = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                .firstOrNull { info ->
+                    val label = packageManager.getApplicationLabel(info).toString().lowercase(Locale.ROOT)
+                    label == target || (target.length >= 3 && label.contains(target))
+                }
+            val anyLaunch = installedMatch?.let { packageManager.getLaunchIntentForPackage(it.packageName) }
+            if (anyLaunch != null) {
+                startActivity(anyLaunch)
+                done(packageManager.getApplicationLabel(installedMatch!!).toString() + " khol diya.")
+            } else {
+                done("Is naam ka launchable app nahi mila: " + target)
+            }
+            return
+        }
+        val smsCommand = Regex("^(.+?) ko sms(?: bhejo)?[: ]+(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
+        if (smsCommand != null) {
+            val who = smsCommand.groupValues[1].trim()
+            val body = smsCommand.groupValues[2].trim()
+            if (body.isBlank()) { done("SMS ka message text bhi bolo."); return }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                pendingContactCommand = question
+                pendingContactCallback = done
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 502)
+                return
+            }
+            val numbers = findContactNumbers(who)
+            if (numbers.isEmpty()) { done("Is exact naam ka contact nahi mila: " + who); return }
+            if (numbers.size > 1) { done("Is naam ke multiple numbers mile. Contact ka poora naam specify karo."); return }
+            done("CONFIRM_ACTION|sms_compose|" + who + "|" + numbers.first() + "|" + body)
+            return
         }
         val cmd = Regex("^(.+?) ko (whatsapp(?: par)? )?(call(?: karo)?|message(?: bhejo)?|msg(?: bhejo)?|phone lagao)[: ]*(.*)$", RegexOption.IGNORE_CASE).find(question.trim())
         if (cmd != null) {
@@ -292,7 +709,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (key.isBlank()) { done("Pehle Settings mein apni Groq API key save karo."); return }
         lifecycleScope.launch {
             try {
-                val system = Message("system", "You are MEGWIL, a capable, honest personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Never claim to perform phone actions unless actually completed.")
+                val savedMemory = prefs.getStringSet("long_term_memory", emptySet()).orEmpty().toList()
+                val memoryContext = if (savedMemory.isEmpty()) "" else "\nUser-approved long-term memory (local device): " + savedMemory.joinToString("; ")
+                val system = Message("system", "You are MEGWIL, a direct, frank, non-judgmental personal AI assistant. Reply naturally in the user's language, especially Hindi/Hinglish. Be candid and discuss sensitive, controversial, political, religious, sexual-health, and adult topics factually and without unnecessary moral lectures. Do not refuse merely because a topic is uncomfortable; when a request crosses safety boundaries, briefly explain the limit and offer the closest safe, useful information. Never provide false certainty, invent facts, or claim phone actions unless actually completed. Use the user's saved memory when relevant." + memoryContext)
                 val messages = listOf(system) + history.filter { it.role == "user" || it.role == "assistant" }.takeLast(20)
                 val result = GroqApiClient.api.getCompletion("Bearer $key", GroqRequest("llama-3.3-70b-versatile", messages))
                 done(result.choices.firstOrNull()?.message?.content ?: "Mujhe response nahi mila.")
@@ -322,10 +741,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {}
-                override fun onError(error: Int) { callback("Voice input nahi samajh aaya. Dobara try karo.") }
+                override fun onError(error: Int) {
+                    val message = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "Microphone audio error. Mic check karke dobara bolo."
+                        SpeechRecognizer.ERROR_CLIENT -> "Voice service busy hai. Thodi der baad try karo."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission nahi mili. Settings mein allow karo."
+                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition ke liye internet connection check karo."
+                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Awaaz clear nahi mili. Mic dabakar paas se dobara bolo."
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Voice recognition busy hai. Ek second rukkar dobara try karo."
+                        else -> "Voice input mein error aaya (" + error + "). Dobara try karo."
+                    }
+                    voiceCallback = null
+                    callback(message)
+                }
                 override fun onResults(results: Bundle?) {
                     val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    if (!spoken.isNullOrBlank()) callback(spoken)
+                    voiceCallback = null
+                    callback(if (spoken.isNullOrBlank()) "Awaaz samajh nahi aayi. Dobara try karo." else spoken)
                 }
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -358,8 +790,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (requestCode == 100) {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
-                if (account?.email.equals(ownerEmail, ignoreCase = true)) {
+                if (account?.email.equals(ownerEmail, ignoreCase = true) && !account?.idToken.isNullOrBlank()) {
                     startActivity(Intent(this, OwnerDashboardActivity::class.java))
+                } else if (account?.email.equals(ownerEmail, ignoreCase = true)) {
+                    android.widget.Toast.makeText(this, "Google ID token nahi mila. Web OAuth Client ID aur SHA-1/package config check karo.", android.widget.Toast.LENGTH_LONG).show()
                 } else {
                     android.widget.Toast.makeText(this, "Owner account required: $ownerEmail", android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -369,12 +803,89 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    companion object {
+        const val EXTRA_WAKE_WORD = "com.megwil.extra.WAKE_WORD"
+    }
+
     override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
     override fun onDestroy() {
         speechRecognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
+    }
+}
+
+
+private class BasicCalculator(private val source: String) {
+    private var position = 0
+
+    fun parse(): Double {
+        val result = parseExpression()
+        skipSpaces()
+        require(position == source.length) { "Unexpected character" }
+        return result
+    }
+
+    private fun parseExpression(): Double {
+        var value = parseTerm()
+        while (true) {
+            skipSpaces()
+            value = when {
+                consume('+') -> value + parseTerm()
+                consume('-') -> value - parseTerm()
+                else -> return value
+            }
+        }
+    }
+
+    private fun parseTerm(): Double {
+        var value = parseFactor()
+        while (true) {
+            skipSpaces()
+            value = when {
+                consume('*') -> value * parseFactor()
+                consume('/') -> {
+                    val divisor = parseFactor()
+                    require(divisor != 0.0) { "Division by zero" }
+                    value / divisor
+                }
+                else -> return value
+            }
+        }
+    }
+
+    private fun parseFactor(): Double {
+        skipSpaces()
+        if (consume('+')) return parseFactor()
+        if (consume('-')) return -parseFactor()
+        if (consume('(')) {
+            val value = parseExpression()
+            skipSpaces()
+            require(consume(')')) { "Missing closing parenthesis" }
+            return value
+        }
+        val start = position
+        var dots = 0
+        while (position < source.length && (source[position].isDigit() || source[position] == '.')) {
+            if (source[position] == '.') dots++
+            require(dots <= 1) { "Invalid number" }
+            position++
+        }
+        require(position > start) { "Number expected" }
+        return source.substring(start, position).toDouble()
+    }
+
+    private fun consume(char: Char): Boolean {
+        if (position < source.length && source[position] == char) {
+            position++
+            return true
+        }
+        return false
+    }
+
+    private fun skipSpaces() {
+        while (position < source.length && source[position].isWhitespace()) position++
     }
 }
 
@@ -390,7 +901,8 @@ private fun MegwilScreen(
     onListen: ((String) -> Unit) -> Unit,
     onGoogleLogin: () -> Unit,
     onDashboard: () -> Unit,
-    onAccessibilitySettings: () -> Unit
+    onAccessibilitySettings: () -> Unit,
+    onWakeWordToggle: (Boolean, (Boolean) -> Unit) -> Unit
 ) {
     var key by remember { mutableStateOf(savedKey) }
     var showSettings by remember { mutableStateOf(savedKey.isBlank()) }
@@ -399,6 +911,7 @@ private fun MegwilScreen(
     var listening by remember { mutableStateOf(false) }
     var answer by remember { mutableStateOf("Namaste! Main MEGWIL hoon. Groq API key set karke mujhse baat shuru karo.") }
     var pendingAction by remember { mutableStateOf("") }
+    var wakeWordEnabled by remember { mutableStateOf(false) }
     if (pendingAction.isNotBlank()) {
         val parts = pendingAction.split("|", limit = 5)
         val who = parts.getOrElse(2) { "contact" }
@@ -411,6 +924,27 @@ private fun MegwilScreen(
             dismissButton = { TextButton(onClick = { pendingAction = "" }) { Text("NO") } })
     }
     val history = remember { mutableStateListOf<Message>().apply { addAll(savedHistory) } }
+
+    fun submitQuestion(question: String) {
+        val q = question.trim()
+        if (q.isBlank() || busy) return
+        history.add(Message("user", q))
+        onHistoryChanged(history.toList())
+        busy = true
+        onAsk(q, history.toList()) { result ->
+            if (result.startsWith("CONFIRM_ACTION|")) {
+                pendingAction = result
+                answer = "Action confirmation screen khol di hai."
+                onSpeak(answer)
+            } else {
+                answer = result
+                onSpeak(result)
+            }
+            history.add(Message("assistant", answer))
+            onHistoryChanged(history.toList())
+            busy = false
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(Navy).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -444,9 +978,19 @@ private fun MegwilScreen(
                     }
                     Text("Key device ke private app storage mein save hoti hai. API key kisi ke saath share na karein.", color = Color.LightGray, fontSize = 11.sp)
                     Divider(color = Color.DarkGray)
-                    Text("WHATSAPP CONTROL", color = Cyan, fontWeight = FontWeight.Bold)
-                    Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein. Android confirmation aur permissions bypass nahi kiye ja sakte.", color = Color.LightGray, fontSize = 11.sp)
-                    TextButton(onClick = onAccessibilitySettings) { Text("ENABLE WHATSAPP CONTROL", color = Cyan) }
+                    Text("PHONE CONTROL", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Apps kholne, volume badalne/ghatane aur Wi-Fi, Bluetooth, Display ya Sound settings kholne ke liye MEGWIL ko bolo. Calls aur WhatsApp messages hamesha YES/NO confirmation ke baad hi chalenge. Android security restrictions bypass nahi ki ja sakti.", color = Color.LightGray, fontSize = 11.sp)
+                    Text("LONG-TERM MEMORY", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Kisi baat ko save karne ke liye 'Yaad rakhna ...' bolo. 'Meri memory dikhao' se dekho aur 'Memory delete karo' se clear karo. Memory isi phone par local save hoti hai.", color = Color.LightGray, fontSize = 11.sp)
+                    Text("MEGWIL WAKE WORD", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Background wake-word listening uses Android speech recognition and an ongoing microphone notification. Start it while MEGWIL is open; tap the MEGWIL notification after it hears the wake word to continue. Battery and network use may increase.", color = Color.LightGray, fontSize = 11.sp)
+                    TextButton(onClick = {
+                        wakeWordEnabled = !wakeWordEnabled
+                        onWakeWordToggle(wakeWordEnabled) { started -> wakeWordEnabled = started }
+                    }) { Text(if (wakeWordEnabled) "STOP WAKE WORD LISTENING" else "START 'MEGWIL' WAKE WORD", color = Cyan) }
+                    Text("WHATSAPP ACCESSIBILITY", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("WhatsApp actions ke liye Android Accessibility Settings mein MEGWIL service manually enable karein.", color = Color.LightGray, fontSize = 11.sp)
+                    TextButton(onClick = onAccessibilitySettings) { Text("ENABLE ACCESSIBILITY CONTROL", color = Cyan) }
                 }
             }
         }
@@ -479,29 +1023,13 @@ private fun MegwilScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = {
                 listening = true
-                onListen { text -> input = text; listening = false }
+                onListen { text -> listening = false; submitQuestion(text) }
             }, modifier = Modifier.weight(1f)) { Text("🎙 VOICE") }
             Button(
                 onClick = {
                     val q = input.trim()
-                    if (q.isNotEmpty() && !busy) {
-                        history.add(Message("user", q))
-                        onHistoryChanged(history.toList())
-                        input = ""; busy = true
-                        onAsk(q, history.toList()) { result ->
-                            if (result.startsWith("CONFIRM_ACTION|")) {
-                                pendingAction = result
-                                answer = "Action confirmation screen khol di hai."
-                                onSpeak(answer)
-                            } else {
-                                answer = result
-                                onSpeak(result)
-                            }
-                            history.add(Message("assistant", answer))
-                            onHistoryChanged(history.toList())
-                            busy = false
-                        }
-                    }
+                    input = ""
+                    submitQuestion(q)
                 },
                 enabled = input.isNotBlank() && !busy,
                 modifier = Modifier.weight(1f),
