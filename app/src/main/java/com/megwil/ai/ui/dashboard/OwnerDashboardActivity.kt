@@ -54,7 +54,7 @@ class OwnerDashboardActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text("MEGWIL • OWNER CONSOLE", color = Cyan, fontSize = 23.sp)
-                        Text("OWNER VERIFIED", color = Color(0xFF62E6A7), fontSize = 11.sp)
+                        Text("LOCAL OWNER CHECK ONLY", color = Color(0xFFFFC266), fontSize = 11.sp)
                         Text(ownerEmail, color = Color.White)
                         Divider(color = Color.DarkGray)
                         Text("LIVE DEVICE STATUS", color = Cyan)
@@ -80,7 +80,7 @@ class OwnerDashboardActivity : ComponentActivity() {
                             Toast.makeText(this@OwnerDashboardActivity, "Saved chat history cleared.", Toast.LENGTH_SHORT).show()
                         }
                         Text("SECURITY NOTE", color = Cyan, fontSize = 12.sp)
-                        Text("Dashboard access is checked against the signed-in Google email on this device. This is a local UI gate, not server-side authorization. No user-management or remote admin controls exist because MEGWIL has no admin backend.", color = Color.LightGray, fontSize = 12.sp)
+                        Text("SECURITY LIMIT: Google email matching happens only inside this app. It is not server-side identity verification and must not protect private cloud data or privileged remote actions. A trusted backend with verified Google ID tokens and owner authorization is still required; no backend credentials or server are configured in this project.", color = Color.LightGray, fontSize = 12.sp)
                         Text("Android controls microphone access. MEGWIL cannot grant permanent background microphone permission or bypass Android restrictions.", color = Color.LightGray, fontSize = 12.sp)
                         Button(onClick = { finish() }) { Text("BACK TO MEGWIL") }
                     }
