@@ -38,6 +38,7 @@ class OwnerDashboardActivity : ComponentActivity() {
         }
 
         val prefs = getSharedPreferences("megwil_secure_settings", MODE_PRIVATE)
+        val memoryFacts = prefs.getStringSet("long_term_memory", emptySet()).orEmpty().toList().sorted()
         val groqReady = !prefs.getString("groq_key", "").isNullOrBlank()
         val micReady = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val contactsReady = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
@@ -59,6 +60,7 @@ class OwnerDashboardActivity : ComponentActivity() {
                         Divider(color = Color.DarkGray)
                         Text("LIVE DEVICE STATUS", color = Cyan)
                         StatusLine("Groq AI key", groqReady, if (groqReady) "Saved on this device" else "Not configured")
+                        StatusLine("Long-term memory", memoryFacts.isNotEmpty(), "${memoryFacts.size} saved facts on this device")
                         StatusLine("Microphone", micReady, if (micReady) "Permission granted" else "Permission missing")
                         StatusLine("Contacts", contactsReady, if (contactsReady) "Permission granted" else "Permission missing")
                         StatusLine("Phone calls", callReady, if (callReady) "Permission granted" else "Permission missing")
@@ -78,6 +80,20 @@ class OwnerDashboardActivity : ComponentActivity() {
                         ActionButton("CLEAR SAVED CHAT HISTORY") {
                             prefs.edit().remove("chat_history").apply()
                             Toast.makeText(this@OwnerDashboardActivity, "Saved chat history cleared.", Toast.LENGTH_SHORT).show()
+                        }
+                        if (memoryFacts.isNotEmpty()) {
+                            Text("SAVED LONG-TERM MEMORY", color = Cyan, fontSize = 12.sp)
+                            memoryFacts.take(10).forEach { fact ->
+                                Text("• " + fact, color = Color.LightGray, fontSize = 12.sp)
+                            }
+                            if (memoryFacts.size > 10) {
+                                Text("And ${memoryFacts.size - 10} more saved facts", color = Color.LightGray, fontSize = 11.sp)
+                            }
+                        }
+                        ActionButton("CLEAR LONG-TERM MEMORY") {
+                            prefs.edit().remove("long_term_memory").apply()
+                            Toast.makeText(this@OwnerDashboardActivity, "Long-term memory cleared.", Toast.LENGTH_SHORT).show()
+                            recreate()
                         }
                         Text("SECURITY NOTE", color = Cyan, fontSize = 12.sp)
                         Text("SECURITY LIMIT: Google email matching happens only inside this app. It is not server-side identity verification and must not protect private cloud data or privileged remote actions. A trusted backend with verified Google ID tokens and owner authorization is still required; no backend credentials or server are configured in this project.", color = Color.LightGray, fontSize = 12.sp)
