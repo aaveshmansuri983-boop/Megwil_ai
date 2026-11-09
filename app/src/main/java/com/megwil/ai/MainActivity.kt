@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var voiceCallback: ((String) -> Unit)? = null
+    private var pendingContactCommand: String? = null
+    private var pendingContactCallback: ((String) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,22 +92,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         prefs.edit().putString("chat_history", Gson().toJson(history.takeLast(100))).apply()
     }
 
-    private fun findContactNumber(name: String): String? {
+    private fun findContactNumbers(name: String): List<String> {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 502)
-            return null
+            return emptyList()
         }
-        contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+        val matches = linkedSetOf<String>()
+        contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
-            null, null, null)?.use { cursor ->
+            null, null, null
+        )?.use { cursor ->
             val ni = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
             val pi = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
             while (cursor.moveToNext()) {
-                val n = cursor.getString(ni) ?: continue
-                if (n.equals(name, true)) return cursor.getString(pi)
+                val displayName = cursor.getString(ni) ?: continue
+                if (displayName.equals(name, true)) {
+                    val number = cursor.getString(pi)?.trim().orEmpty()
+                    if (number.isNotBlank()) matches.add(number)
+                }
             }
         }
-        return null
+        return matches.toList()
     }
 
     private fun runConfirmedAction(payload: String) {
@@ -142,6 +149,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + number)))
             }
         }
+        if (requestCode == 502) {
+            val command = pendingContactCommand
+            val callback = pendingContactCallback
+            pendingContactCommand = null
+            pendingContactCallback = null
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && !command.isNullOrBlank() && callback != null) {
+                askMegwil(command, loadHistory(), callback)
+            } else if (callback != null) {
+                callback("Contacts permission nahi mili. Android Settings mein permission allow karke command dobara bolo.")
+            }
+        }
     }
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
@@ -174,8 +192,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val wa = cmd.groupValues[2].isNotBlank() || lower.contains("whatsapp")
             val verb = cmd.groupValues[3].lowercase(Locale.ROOT)
             val body = cmd.groupValues[4].trim().removePrefix(":").trim()
-            val number = findContactNumber(who)
-            if (number == null) { done("Contact nahi mila ya Contacts permission nahi hai. Permission do aur dobara bolo."); return }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                pendingContactCommand = question
+                pendingContactCallback = done
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 502)
+                done("Contacts permission maangi gayi hai. Allow karte hi command dobara process hogi.")
+                return
+            }
+            val numbers = findContactNumbers(who)
+            if (numbers.isEmpty()) { done("Is exact naam ka contact nahi mila: " + who); return }
+            if (numbers.size > 1) {
+                done("Is naam ke multiple numbers mile: " + numbers.joinToString(" / ") + ". Command mein contact ka poora naam ya number specify karo.")
+                return
+            }
+            val number = numbers.first()
             val kind = if (verb.contains("call") || verb.contains("phone")) { if (wa) "wa_call" else "phone_call" } else "wa_message"
             if (kind == "wa_message" && body.isBlank()) { done("Message ka text bhi bolo."); return }
             done("CONFIRM_ACTION|" + kind + "|" + who + "|" + number + "|" + body)
