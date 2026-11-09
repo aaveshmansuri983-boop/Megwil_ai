@@ -36,6 +36,9 @@ sed -i 's/Theme\.OpenJarvis/Theme.Megwil/g; s/Theme\.Material3\.Light\.NoActionB
 # Material Components supplies the XML theme attributes used by themes.xml.
 sed -i "/implementation 'androidx.appcompat:appcompat:1.6.1'/a\\    implementation 'com.google.android.material:material:1.12.0'" "$PROJECT/app/build.gradle"
 
+# Repair source-level Android/Kotlin issues discovered by the first real compile.
+python3 "$ROOT/scripts/fix_android_port.py" "$PROJECT"
+
 cat > "$PROJECT/gradle.properties" <<'PROPS'
 android.useAndroidX=true
 android.nonTransitiveRClass=true
