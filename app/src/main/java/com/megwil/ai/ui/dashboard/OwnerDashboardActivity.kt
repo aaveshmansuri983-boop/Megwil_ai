@@ -1,4 +1,4 @@
-package com.megwil.ai.ui.dashboard
+package com.megwil.ui.dashboard
 
 import android.Manifest
 import android.content.Intent
@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.megwil.ai.BuildConfig
+import com.megwil.BuildConfig
 
 private val Cyan = Color(0xFF00E5FF)
 private val Navy = Color(0xFF070B14)
@@ -92,7 +92,7 @@ class OwnerDashboardActivity : ComponentActivity() {
     private fun isMegwilAccessibilityEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
         return enabled.split(':').any { it.contains("$packageName/.service.MegwilAccessibilityService", true) ||
-            it.contains("$packageName/com.megwil.ai.service.MegwilAccessibilityService", true) }
+            it.contains("$packageName/com.megwil.service.MegwilAccessibilityService", true) }
     }
 }
 
