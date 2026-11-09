@@ -101,18 +101,37 @@ jobs:
           fi
 
           adb shell am force-stop com.megwil || true
-          adb shell am start -n com.megwil/.MainActivity
+          adb shell am start -W -n com.megwil/.MainActivity
 
-          for attempt in $(seq 1 12); do
-            if adb shell pidof com.megwil | tr -d '\\r' | grep -q '[0-9]'; then
+          # Wait for the actual Compose home screen, not merely a live process
+          # or Android's launch splash screen. First cold start can be slow on CI.
+          ui_ready=0
+          for attempt in $(seq 1 24); do
+            adb shell uiautomator dump /sdcard/megwil-window.xml >/dev/null 2>&1 || true
+            UI_XML="$(adb shell cat /sdcard/megwil-window.xml 2>/dev/null | tr -d '\\r' || true)"
+            if printf '%s' "$UI_XML" | grep -qi 'MEGWIL AI' &&
+               printf '%s' "$UI_XML" | grep -Eqi 'CONVERSATION|Ask MEGWIL anything' &&
+               printf '%s' "$UI_XML" | grep -Eqi 'GOOGLE LOGIN|SEND|VOICE'; then
+              ui_ready=1
+              echo "MEGWIL home screen and primary controls are visible."
               break
             fi
-            sleep 2
+            echo "Waiting for MEGWIL Compose home UI (attempt $attempt/24)..."
+            sleep 5
           done
-          adb shell pidof com.megwil
 
+          if [ "$ui_ready" -ne 1 ]; then
+            echo "MEGWIL home UI did not become visible; refusing to mark splash-only launch as passed."
+            echo "Last UI hierarchy:"
+            printf '%s\\n' "$UI_XML" | head -c 12000 || true
+            adb logcat -d -t 5000 > "$LOGCAT"
+            tail -n 350 "$LOGCAT" || true
+            exit 1
+          fi
+
+          adb shell pidof com.megwil
           adb shell input keyevent 82 || true
-          sleep 3
+          sleep 2
           adb exec-out screencap -p > "$SCREENSHOT"
           test -s "$SCREENSHOT"
           file "$SCREENSHOT"
