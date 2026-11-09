@@ -509,6 +509,27 @@ private fun MegwilScreen(
     }
     val history = remember { mutableStateListOf<Message>().apply { addAll(savedHistory) } }
 
+    fun submitQuestion(question: String) {
+        val q = question.trim()
+        if (q.isBlank() || busy) return
+        history.add(Message("user", q))
+        onHistoryChanged(history.toList())
+        busy = true
+        onAsk(q, history.toList()) { result ->
+            if (result.startsWith("CONFIRM_ACTION|")) {
+                pendingAction = result
+                answer = "Action confirmation screen khol di hai."
+                onSpeak(answer)
+            } else {
+                answer = result
+                onSpeak(result)
+            }
+            history.add(Message("assistant", answer))
+            onHistoryChanged(history.toList())
+            busy = false
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(Navy).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
@@ -586,29 +607,13 @@ private fun MegwilScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = {
                 listening = true
-                onListen { text -> input = text; listening = false }
+                onListen { text -> listening = false; submitQuestion(text) }
             }, modifier = Modifier.weight(1f)) { Text("🎙 VOICE") }
             Button(
                 onClick = {
                     val q = input.trim()
-                    if (q.isNotEmpty() && !busy) {
-                        history.add(Message("user", q))
-                        onHistoryChanged(history.toList())
-                        input = ""; busy = true
-                        onAsk(q, history.toList()) { result ->
-                            if (result.startsWith("CONFIRM_ACTION|")) {
-                                pendingAction = result
-                                answer = "Action confirmation screen khol di hai."
-                                onSpeak(answer)
-                            } else {
-                                answer = result
-                                onSpeak(result)
-                            }
-                            history.add(Message("assistant", answer))
-                            onHistoryChanged(history.toList())
-                            busy = false
-                        }
-                    }
+                    input = ""
+                    submitQuestion(q)
                 },
                 enabled = input.isNotBlank() && !busy,
                 modifier = Modifier.weight(1f),
