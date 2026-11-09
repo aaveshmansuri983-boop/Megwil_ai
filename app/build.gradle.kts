@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.megwil.ai"
+    namespace = "com.megwil"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.megwil.ai"
+        applicationId = "com.megwil"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
