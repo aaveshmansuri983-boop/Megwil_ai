@@ -1,111 +1,118 @@
-name: Build MEGWIL JARVIS Android Port
+name: Build JARVIS V3 Android APK
 
 on:
   push:
-    branches: ["main"]
+    branches: ["jarvis-android-fix"]
+    paths:
+      - "jarvis-app-android-v3.zip"
+      - ".github/workflows/build_jarvis_android.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  build-jarvis-android:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - name: Checkout
+      - name: Checkout JARVIS source archive
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Verify and extract the actual JARVIS V3 source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s jarvis-app-android-v3.zip
+          mkdir -p "$RUNNER_TEMP/jarvis-v3"
+          unzip -q jarvis-app-android-v3.zip -d "$RUNNER_TEMP/jarvis-v3"
+          PROJECT="$RUNNER_TEMP/jarvis-v3/jarvis-app-0.1.0"
+          test -f "$PROJECT/src-tauri/Cargo.toml"
+          test -f "$PROJECT/src-tauri/tauri.conf.json"
+          test -f "$PROJECT/src/index.html"
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "Building the Tauri/Rust JARVIS V3 archive (not MEGWIL additive source)."
+
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Gradle 8.6
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.6-bin.zip -O /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/gradle-8.6/bin" >> "$GITHUB_PATH"
-
       - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Install Rust Android target
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-linux-android
+
+      - name: Install Tauri CLI v2
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Initialize Tauri Android project
+        working-directory: ${{ steps.source.outputs.project }}
         env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          CI: "true"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+        run: cargo tauri android init --ci --skip-targets-install
 
-      - name: Prepare isolated Android port from additive source
-        id: prepare
-        run: |
-          bash scripts/prepare_android_port.sh
-          echo "project=$RUNNER_TEMP/megwil-jarvis-android/open-jarvis-main" >> "$GITHUB_OUTPUT"
-
-      - name: Build debug APK
+      - name: Build JARVIS Android APK (ARM64)
+        working-directory: ${{ steps.source.outputs.project }}
         env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: gradle -p "${{ steps.prepare.outputs.project }}" assembleDebug --no-daemon
+          CI: "true"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+        run: cargo tauri android build --apk --target aarch64 --ci
 
-      - name: Package APK as a one-download ZIP
+      - name: Package APK
+        shell: bash
+        working-directory: ${{ steps.source.outputs.project }}
         run: |
-          mkdir -p dist
-          cp "${{ steps.prepare.outputs.project }}/app/build/outputs/apk/debug/app-debug.apk" dist/MEGWIL-JARVIS.apk
-          cat > dist/INSTALL.txt <<'EOF'
-          MEGWIL JARVIS Android test build
-          
-          Install MEGWIL-JARVIS.apk on Android 8.0 or later.
-          On first launch, grant only the permissions needed for the features you enable.
-          Accessibility and overlay access are optional and require explicit user activation.
-          
-          This is an Android adaptation of the MEGWIL additive Android source.
-          Linux-only Project JARVIS kernel interfaces (/dev/jarvis, jarvis.ko, /sys/class/misc/jarvis)
-          are not part of this APK and require Android-native alternatives.
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          find src-tauri/gen/android -type f -name "*.apk" -print
+          APK="$(find src-tauri/gen/android -type f -name "*.apk" | head -n 1)"
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/JARVIS-V3-Android-arm64.apk"
+          cat > "$GITHUB_WORKSPACE/dist/INSTALL.txt" <<'EOF'
+          JARVIS V3 Android ARM64 test build
+          Install JARVIS-V3-Android-arm64.apk on a compatible 64-bit Android device.
+          This is an unsigned CI test build; Play Store publication requires signing.
           EOF
-          sha256sum dist/MEGWIL-JARVIS.apk > dist/SHA256SUMS.txt
-          (cd dist && zip -9 ../MEGWIL-JARVIS-Android.zip MEGWIL-JARVIS.apk INSTALL.txt SHA256SUMS.txt)
-          test -s MEGWIL-JARVIS-Android.zip
+          sha256sum "$GITHUB_WORKSPACE/dist/JARVIS-V3-Android-arm64.apk" > "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt"
+          (cd "$GITHUB_WORKSPACE/dist" && zip -9 "$GITHUB_WORKSPACE/JARVIS-V3-Android.zip" JARVIS-V3-Android-arm64.apk INSTALL.txt SHA256SUMS.txt)
 
-      - name: Upload installable APK ZIP
+      - name: Upload JARVIS V3 APK and install ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: MEGWIL-JARVIS-Android-ZIP
-          path: MEGWIL-JARVIS-Android.zip
+          name: JARVIS-V3-Android-APK
+          path: |
+            dist/JARVIS-V3-Android-arm64.apk
+            JARVIS-V3-Android.zip
+            dist/INSTALL.txt
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
-
-      - name: Run unit tests
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: gradle -p "${{ steps.prepare.outputs.project }}" testDebugUnitTest --no-daemon
-
-      - name: Emulator smoke test
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          emulator-options: -no-window -no-audio -no-boot-anim
-          disable-animations: true
-          script: |
-            set -eu
-            APK="${{ steps.prepare.outputs.project }}/app/build/outputs/apk/debug/app-debug.apk"
-            adb wait-for-device
-            adb install -r "$APK"
-            adb shell am force-stop com.megwil.ai || true
-            adb shell am start -n com.megwil.ai/.ui.MainActivity
-            for attempt in $(seq 1 15); do
-              if adb shell pidof com.megwil.ai | tr -d '\r' | grep -q '[0-9]'; then break; fi
-              sleep 2
-            done
-            adb shell pidof com.megwil.ai
-            adb logcat -d -t 5000 > megwil-jarvis-logcat.txt
-            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" megwil-jarvis-logcat.txt; then exit 1; fi
-
-      - name: Upload emulator logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: MEGWIL-JARVIS-Android-Test-Logs
-          path: megwil-jarvis-logcat.txt
-          if-no-files-found: ignore
-          retention-days: 14
