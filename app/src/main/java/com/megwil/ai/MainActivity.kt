@@ -149,6 +149,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         prefs.edit().putString("chat_history", Gson().toJson(history.takeLast(100))).apply()
     }
 
+    private fun loadQuickNotes(): List<String> {
+        return try {
+            Gson().fromJson(prefs.getString("quick_notes_json", "[]"), object : TypeToken<List<String>>() {}.type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun saveQuickNotes(notes: List<String>) {
+        prefs.edit().putString("quick_notes_json", Gson().toJson(notes.takeLast(100))).apply()
+    }
+
     private fun findContactNumbers(name: String): List<String> {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             return emptyList()
@@ -270,6 +280,123 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private fun askMegwil(question: String, history: List<Message>, done: (String) -> Unit) {
         val lower = question.trim().lowercase(Locale.ROOT)
+        // Offline calculator: supports +, -, *, /, parentheses and decimals.
+        val calcMatch = Regex("(?i)^(?:calculate|calc|hisab|गणना(?: करो)?)\\s+(.+)$").find(question.trim())
+        if (calcMatch != null) {
+            try {
+                val value = BasicCalculator(calcMatch.groupValues[1]).parse()
+                if (!value.isFinite()) throw IllegalArgumentException("Result is not finite")
+                val formatted = java.text.DecimalFormat("0.##########").format(value)
+                done("Result: " + formatted)
+            } catch (_: Exception) {
+                done("Calculation samajh nahi aayi. Example: calculate (25 + 5) * 2")
+            }
+            return
+        }
+
+        // Private quick notes stored locally on this device.
+        val noteText = Regex("(?i)^(?:save note|note save|note likho|नोट लिखो)[: ]+(.+)$").find(question.trim())?.groupValues?.get(1)?.trim()
+        if (noteText != null) {
+            val notes = loadQuickNotes().toMutableList()
+            notes.add(noteText)
+            saveQuickNotes(notes)
+            done("Note phone mein save kar diya. Total notes: " + notes.size)
+            return
+        }
+        if (listOf("show notes", "list notes", "mere notes", "notes dikhao", "नोट दिखाओ").any { lower.contains(it) }) {
+            val notes = loadQuickNotes()
+            done(if (notes.isEmpty()) "Abhi koi quick note saved nahi hai." else "Tumhare notes:\n" + notes.mapIndexed { index, note -> (index + 1).toString() + ". " + note }.joinToString("\n"))
+            return
+        }
+        if (listOf("delete all notes", "clear notes", "saare notes delete", "notes hatao", "सारे नोट हटाओ").any { lower.contains(it) }) {
+            saveQuickNotes(emptyList())
+            done("Saare quick notes delete kar diye.")
+            return
+        }
+
+        // Calendar event draft; Android Calendar asks the user to review and save it.
+        val eventTitle = Regex("(?i)^(?:calendar event|event banao|calendar mein event)[: ]+(.+)$")
+            .find(question.trim())?.groupValues?.get(1)?.trim()
+        if (eventTitle != null) {
+            try {
+                val eventIntent = Intent(Intent.ACTION_INSERT).setData(android.provider.CalendarContract.Events.CONTENT_URI)
+                    .putExtra(android.provider.CalendarContract.Events.TITLE, eventTitle)
+                startActivity(eventIntent)
+                done("Calendar mein event draft khol diya. Date/time check karke Save dabao.")
+            } catch (_: Exception) {
+                done("Calendar app available nahi hai. Phone mein calendar app install ya enable karo.")
+            }
+            return
+        }
+
+        // Share the previous assistant answer or user-supplied text via Android's share sheet.
+        if (lower == "share last answer" || lower == "share previous answer" || lower == "mera last jawab share karo") {
+            val textToShare = history.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+            if (textToShare.isBlank()) { done("Share karne ke liye abhi koi previous MEGWIL answer nahi hai."); return }
+            try {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, textToShare), "Share MEGWIL answer"))
+                done("Share sheet khol di. App select karke khud share confirm karo.")
+            } catch (_: Exception) { done("Share option abhi available nahi hai.") }
+            return
+        }
+        val shareText = Regex("(?i)^(?:share|share this)[: ]+(.+)$").find(question.trim())?.groupValues?.get(1)?.trim()
+        if (shareText != null) {
+            try {
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shareText), "Share with"))
+                done("Share sheet khol di. Bhejne se pehle content check kar lena.")
+            } catch (_: Exception) { done("Share option abhi available nahi hai.") }
+            return
+        }
+
+        // Clipboard copy; Android shows its own clipboard privacy indicator.
+        if (lower == "copy last answer" || lower == "copy previous answer" || lower == "last answer copy karo") {
+            val textToCopy = history.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+            if (textToCopy.isBlank()) { done("Copy karne ke liye previous MEGWIL answer nahi mila."); return }
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MEGWIL answer", textToCopy))
+            done("Pichhla MEGWIL answer clipboard mein copy kar diya.")
+            return
+        }
+        val copyText = Regex("(?i)^(?:copy|copy text)[: ]+(.+)$").find(question.trim())?.groupValues?.get(1)?.trim()
+        if (copyText != null) {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MEGWIL text", copyText))
+            done("Text clipboard mein copy kar diya.")
+            return
+        }
+
+        // Open a requested website without treating arbitrary text as an executable URI.
+        val website = Regex("(?i)^(?:open website|open site|website kholo|site kholo)[: ]+(.+)$")
+            .find(question.trim())?.groupValues?.get(1)?.trim()
+        if (website != null) {
+            val knownSites = mapOf("youtube" to "https://www.youtube.com", "google" to "https://www.google.com",
+                "instagram" to "https://www.instagram.com", "facebook" to "https://www.facebook.com",
+                "whatsapp web" to "https://web.whatsapp.com")
+            val target = knownSites[website.lowercase(Locale.ROOT)] ?: run {
+                val candidate = if (website.startsWith("http://", true) || website.startsWith("https://", true)) website else "https://" + website
+                val parsed = Uri.parse(candidate)
+                if (parsed.scheme !in listOf("http", "https") || parsed.host.isNullOrBlank()) null else candidate
+            }
+            if (target == null) { done("Valid website bolo, jaise: open website youtube.com"); return }
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+                done("Website khol di: " + target)
+            } catch (_: Exception) { done("Is website ko kholne ke liye browser available nahi hai.") }
+            return
+        }
+
+        // Report device data-partition storage; no broad file access permission is needed.
+        if (listOf("storage info", "phone storage", "storage kitni", "memory space", "स्टोरेज").any { lower.contains(it) }) {
+            try {
+                val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+                val totalGb = stat.totalBytes / (1024.0 * 1024.0 * 1024.0)
+                val freeGb = stat.availableBytes / (1024.0 * 1024.0 * 1024.0)
+                val fmt = java.text.DecimalFormat("0.0")
+                done("Internal data storage: " + fmt.format(freeGb) + " GB free out of " + fmt.format(totalGb) + " GB.")
+            } catch (_: Exception) { done("Storage information abhi read nahi ho payi.") }
+            return
+        }
+
 
         // Live device date and time; computed on demand so the answer is current.
         if (listOf("what time", "time now", "current time", "kitne baje", "abhi time", "samay batao", "समय बताओ", "कितने बजे").any { lower.contains(it) }) {
@@ -686,6 +813,79 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
+    }
+}
+
+
+private class BasicCalculator(private val source: String) {
+    private var position = 0
+
+    fun parse(): Double {
+        val result = parseExpression()
+        skipSpaces()
+        require(position == source.length) { "Unexpected character" }
+        return result
+    }
+
+    private fun parseExpression(): Double {
+        var value = parseTerm()
+        while (true) {
+            skipSpaces()
+            value = when {
+                consume('+') -> value + parseTerm()
+                consume('-') -> value - parseTerm()
+                else -> return value
+            }
+        }
+    }
+
+    private fun parseTerm(): Double {
+        var value = parseFactor()
+        while (true) {
+            skipSpaces()
+            value = when {
+                consume('*') -> value * parseFactor()
+                consume('/') -> {
+                    val divisor = parseFactor()
+                    require(divisor != 0.0) { "Division by zero" }
+                    value / divisor
+                }
+                else -> return value
+            }
+        }
+    }
+
+    private fun parseFactor(): Double {
+        skipSpaces()
+        if (consume('+')) return parseFactor()
+        if (consume('-')) return -parseFactor()
+        if (consume('(')) {
+            val value = parseExpression()
+            skipSpaces()
+            require(consume(')')) { "Missing closing parenthesis" }
+            return value
+        }
+        val start = position
+        var dots = 0
+        while (position < source.length && (source[position].isDigit() || source[position] == '.')) {
+            if (source[position] == '.') dots++
+            require(dots <= 1) { "Invalid number" }
+            position++
+        }
+        require(position > start) { "Number expected" }
+        return source.substring(start, position).toDouble()
+    }
+
+    private fun consume(char: Char): Boolean {
+        if (position < source.length && source[position] == char) {
+            position++
+            return true
+        }
+        return false
+    }
+
+    private fun skipSpaces() {
+        while (position < source.length && source[position].isWhitespace()) position++
     }
 }
 
