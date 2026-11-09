@@ -38,7 +38,7 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
-          JARVIS_OWNER_GMAIL: ${{ secrets.MEGWIL_OWNER_GMAIL }}
+          MEGWIL_OWNER_GMAIL: ${{ secrets.MEGWIL_OWNER_GMAIL }}
         run: gradle assembleDebug --no-daemon
 
       - name: Boot cloud Android emulator and smoke-test MEGWIL
