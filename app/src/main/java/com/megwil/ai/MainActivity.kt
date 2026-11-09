@@ -178,6 +178,52 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             done("Chrome par search khol diya: " + query)
             return
         }
+        if (lower.contains("timer") || lower.contains("टाइमर")) {
+            val amount = Regex("(\\d+)\\s*(seconds?|secs?|minutes?|mins?|hours?|घंटे?|मिनट|सेकंड)", RegexOption.IGNORE_CASE).find(lower)
+            if (amount == null) { done("Kitne minute ya second ka timer lagana hai?"); return }
+            val value = amount.groupValues[1].toIntOrNull() ?: 0
+            val unit = amount.groupValues[2]
+            val seconds = when {
+                unit.startsWith("hour") || unit.startsWith("घंटा") -> value * 3600
+                unit.startsWith("min") || unit.startsWith("मिनट") -> value * 60
+                else -> value
+            }
+            if (seconds <= 0) { done("Timer duration sahi nahi hai."); return }
+            try {
+                startActivity(Intent(android.provider.AlarmClock.ACTION_SET_TIMER).putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds).putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "MEGWIL timer").putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false))
+                done("Phone ka timer " + value + " " + unit + " ke liye khol diya.")
+            } catch (_: Exception) { done("Is phone par timer app available nahi hai.") }
+            return
+        }
+        if (lower.contains("alarm") || lower.contains("अलार्म")) {
+            val time = Regex("(?:at\\s*)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?", RegexOption.IGNORE_CASE).find(lower)
+            if (time == null) { done("Alarm ka time batao, jaise 7:30 AM."); return }
+            var hour = time.groupValues[1].toIntOrNull() ?: -1
+            val minute = time.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: 0
+            val meridiem = time.groupValues[3].lowercase(Locale.ROOT)
+            if (meridiem == "pm" && hour in 1..11) hour += 12
+            if (meridiem == "am" && hour == 12) hour = 0
+            if (hour !in 0..23 || minute !in 0..59) { done("Alarm ka time valid nahi hai."); return }
+            try {
+                startActivity(Intent(android.provider.AlarmClock.ACTION_SET_ALARM).putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour).putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute).putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "MEGWIL alarm").putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false))
+                done("Alarm set karne ka screen khol diya. Save confirm kar dena.")
+            } catch (_: Exception) { done("Is phone par alarm app available nahi hai.") }
+            return
+        }
+        if (lower.startsWith("navigate to ") || lower.startsWith("directions to ") || lower.startsWith("maps par ") || lower.startsWith("map kholo ")) {
+            val destination = question.substringAfter("to ", question.substringAfter("par ", question.substringAfter("kholo ", ""))).trim()
+            if (destination.isBlank()) { done("Kahan jana hai?"); return }
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(destination))))
+            done("Maps navigation khol di: " + destination)
+            return
+        }
+        if (lower.startsWith("weather ") || lower.startsWith("mausam ") || lower.contains("weather in ") || lower.contains("mausam batao")) {
+            val place = question.substringAfter("weather in ", question.substringAfter("weather ", question.substringAfter("mausam ", ""))).trim()
+            val query = if (place.isBlank()) "weather today" else "weather in " + place
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query))))
+            done("Latest mausam ki jankari browser mein khol di: " + query)
+            return
+        }
         val appMap = listOf("whatsapp" to "com.whatsapp", "youtube" to "com.google.android.youtube", "instagram" to "com.instagram.android", "chrome" to "com.android.chrome", "maps" to "com.google.android.apps.maps", "gmail" to "com.google.android.gm", "camera" to "com.android.camera", "settings" to "com.android.settings")
         if (lower.startsWith("open ") || lower.startsWith("kholo ")) {
             val target = lower.removePrefix("open ").removePrefix("kholo ").trim()
@@ -361,7 +407,7 @@ private fun MegwilScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
                 Text("MEGWIL AI", color = Cyan, fontSize = 25.sp, fontWeight = FontWeight.Black)
-                Text("PERSONAL INTELLIGENCE • ONLINE", color = Color.LightGray, fontSize = 10.sp)
+                Text("PERSONAL AI • INTERNET REQUIRED", color = Color.LightGray, fontSize = 10.sp)
             }
             TextButton(onClick = { showSettings = !showSettings }) { Text("SETTINGS", color = Cyan) }
         }
