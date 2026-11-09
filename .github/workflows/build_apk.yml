@@ -27,10 +27,16 @@ jobs:
           unzip -q /tmp/gradle-8.6-bin.zip -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gradle-8.6/bin" >> "$GITHUB_PATH"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK packages
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build debug APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK artifact
