@@ -11,10 +11,10 @@ android {
         applicationId = "com.megwil.ai"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.1"
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${System.getenv("GOOGLE_WEB_CLIENT_ID") ?: ""}\"")
-        buildConfigField("String", "OWNER_EMAIL", "\"${System.getenv("JARVIS_OWNER_GMAIL") ?: "aaveshmansuri983@gmail.com"}\"")
+        versionCode = 2
+        versionName = "1.2"
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\${System.getenv("GOOGLE_WEB_CLIENT_ID") ?: ""}\"")
+        buildConfigField("String", "OWNER_EMAIL", "\"\${System.getenv("MEGWIL_OWNER_GMAIL") ?: "aaveshmansuri983@gmail.com"}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
