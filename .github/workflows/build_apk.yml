@@ -64,8 +64,42 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/app/build/outputs/apk/debug/"
           test -s "$APK"
 
+          # Wait until Android has fully booted and Package Manager responds.
           adb wait-for-device
-          adb install -r "$APK"
+          boot_ready=0
+          for attempt in $(seq 1 18); do
+            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" = "1" ] && adb shell cmd package list packages >/dev/null 2>&1; then
+              boot_ready=1
+              break
+            fi
+            echo "Android/Package Manager not ready yet (attempt $attempt/18)"
+            sleep 5
+          done
+          if [ "$boot_ready" -ne 1 ]; then
+            echo "Android did not become ready for package installation."
+            adb shell getprop sys.boot_completed || true
+            adb logcat -d -t 1200 | tail -n 250 || true
+            exit 1
+          fi
+
+          # Avoid streamed-install pipe failures; retry transient emulator service errors.
+          install_ok=0
+          for attempt in $(seq 1 3); do
+            echo "Installing MEGWIL APK (attempt $attempt/3)"
+            if adb install --no-streaming -r "$APK"; then
+              install_ok=1
+              break
+            fi
+            echo "APK install failed; checking Package Manager before retry."
+            adb shell cmd package list packages >/dev/null 2>&1 || true
+            sleep 10
+          done
+          if [ "$install_ok" -ne 1 ]; then
+            echo "MEGWIL APK installation failed after 3 attempts."
+            adb logcat -d -t 2000 | tail -n 350 || true
+            exit 1
+          fi
+
           adb shell am force-stop com.megwil || true
           adb shell am start -n com.megwil/.MainActivity
 
