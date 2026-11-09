@@ -45,7 +45,9 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK"
 
       - name: Boot cloud Android emulator and smoke-test MEGWIL
         uses: reactivecircus/android-emulator-runner@v2
@@ -58,7 +60,10 @@ jobs:
           disable-animations: true
           script: |
             set -eu
-            APK="app/build/outputs/apk/debug/app-debug.apk"
+            cd "$GITHUB_WORKSPACE"
+            APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+            SCREENSHOT="$GITHUB_WORKSPACE/megwil-home.png"
+            LOGCAT="$GITHUB_WORKSPACE/megwil-logcat.txt"
             test -s "$APK"
 
             adb wait-for-device
@@ -66,8 +71,6 @@ jobs:
             adb shell am force-stop com.megwil.ai || true
             adb shell am start -n com.megwil.ai/.MainActivity
 
-            # Give Android time to render the first screen without blocking on
-            # ActivityManager's occasionally unreliable -W launch timeout.
             for attempt in $(seq 1 12); do
               if adb shell pidof com.megwil.ai | tr -d '\r' | grep -q '[0-9]'; then
                 break
@@ -76,32 +79,19 @@ jobs:
             done
             adb shell pidof com.megwil.ai
 
-            # Re-establish the emulator transport before capturing evidence.
-            adb reconnect device || true
-            adb wait-for-device
             adb shell input keyevent 82 || true
             sleep 3
+            adb exec-out screencap -p > "$SCREENSHOT"
+            test -s "$SCREENSHOT"
+            file "$SCREENSHOT"
 
-            # Stream the screenshot directly to the runner; retry transient ADB drops.
-            captured=false
-            for attempt in 1 2 3; do
-              if adb exec-out screencap -p > megwil-home.png && test -s megwil-home.png; then
-                captured=true
-                break
-              fi
-              adb reconnect device || true
-              sleep 3
-              adb wait-for-device
-            done
-            test "$captured" = true
-            file megwil-home.png
-
-            adb logcat -d -t 5000 > megwil-logcat.txt
-            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" megwil-logcat.txt; then
+            adb logcat -d -t 5000 > "$LOGCAT"
+            if grep -E "FATAL EXCEPTION|AndroidRuntime: FATAL" "$LOGCAT"; then
               exit 1
             fi
 
       - name: Upload APK and cloud phone test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MegwilAI-Cloud-Test
@@ -109,5 +99,5 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             megwil-home.png
             megwil-logcat.txt
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
