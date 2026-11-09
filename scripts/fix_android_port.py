@@ -52,6 +52,14 @@ s = s.replace("insert(automation: AutomationManager.Automation)", "insert(automa
 s = s.replace("update(automation: AutomationManager.Automation)", "update(automation: AutomationEntity)")
 p.write_text(s)
 
+# Fix the Room DAO query so its command parameter is actually used.
+p = src / "graphify/nodes/TaskNodeDao.kt"
+s = p.read_text()
+s = s.replace('SELECT * FROM task_nodes ORDER BY timestamp DESC LIMIT :limit",\n    suspend fun getTasksByCommand', "SELECT * FROM task_nodes WHERE command LIKE '%' || :command || '%' ORDER BY timestamp DESC LIMIT :limit",\n    suspend fun getTasksByCommand")
+if "WHERE command LIKE" not in s:
+    raise SystemExit("TaskNodeDao query patch failed")
+p.write_text(s)
+
 # Map domain automation schedules to Room columns and back.
 p = src / "automation/AutomationManager.kt"
 s = p.read_text()
