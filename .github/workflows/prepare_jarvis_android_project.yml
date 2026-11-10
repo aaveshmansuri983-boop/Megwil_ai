@@ -99,22 +99,21 @@ jobs:
           test -f "$PROJECT/src/index.html"
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
-      - name: Normalize Android application identifier for Java package generation
+      - name: Validate Android application identifier without changing bundle ID
         shell: bash
         run: |
           set -euo pipefail
           python - "$PROJECT/src-tauri/tauri.conf.json" <<'PY'
           import json, re, sys
           from pathlib import Path
-          path = Path(sys.argv[1])
-          config = json.loads(path.read_text())
-          old = config.get("identifier", "")
-          normalized = old.replace("-", "_")
-          if not normalized or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) for part in normalized.split(".")):
-              raise SystemExit(f"Android application identifier is not a valid Java package: {normalized!r}")
-          config["identifier"] = normalized
-          path.write_text(json.dumps(config, indent=2) + chr(10))
-          print(f"Android-only application identifier normalized: {old} -> {normalized}")
+          config = json.loads(Path(sys.argv[1]).read_text())
+          identifier = config.get("identifier", "")
+          # Tauri requires a bundle identifier, not a Java package name.
+          # Keep hyphens intact here; the generated Kotlin package is sanitized
+          # separately below so underscores never leak into the bundle ID.
+          if not identifier or not re.fullmatch(r"[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+", identifier):
+              raise SystemExit(f"Invalid Tauri bundle identifier: {identifier!r}")
+          print(f"Preserving valid Tauri bundle identifier: {identifier}")
           PY
       - name: Apply isolated desktop-safe Android source patch
         run: python jarvis-android-runtime/patch_tauri_android.py "$PROJECT"
