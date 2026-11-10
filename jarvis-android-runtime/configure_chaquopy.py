@@ -5,6 +5,7 @@ under src-tauri/gen/android, never the desktop source or MEGWIL app.
 """
 from __future__ import annotations
 import argparse
+import json
 import shutil
 from pathlib import Path
 
@@ -148,6 +149,27 @@ chaquopy {
             raise SystemExit("Cannot safely patch Project-JARVIS TTS provider factory")
         tts_text = tts_text[:pos_tts] + '    if provider == "android":\n        from .android_tts import AndroidTTS\n        return AndroidTTS(**kwargs)\n' + tts_text[pos_tts:]
         tts_init.write_text(tts_text)
+
+    # Enable the Tauri global API and add an Android-only microphone start control.
+    config_path = project / "src-tauri" / "tauri.conf.json"
+    config_data = json.loads(config_path.read_text())
+    config_data.setdefault("app", {})["withGlobalTauri"] = True
+    config_path.write_text(json.dumps(config_data, indent=2) + "\\n")
+    web_src = project / "src"
+    if not web_src.is_dir():
+        raise SystemExit("Tauri frontend source directory is missing")
+    shutil.copy2(runtime / "android-host" / "voice-bridge.js", web_src / "jarvis-android-voice.js")
+    index_html = web_src / "index.html"
+    if not index_html.is_file():
+        raise SystemExit("Tauri frontend index.html is missing")
+    html = index_html.read_text()
+    script_tag = '<script type="module" src="./jarvis-android-voice.js"></script>'
+    if script_tag not in html:
+        if "</body>" in html:
+            html = html.replace("</body>", script_tag + "\\n</body>", 1)
+        else:
+            html += "\\n" + script_tag + "\\n"
+        index_html.write_text(html)
 
     # Make the typed plugin client available to the frontend source tree.
     web_src = project / "src"
