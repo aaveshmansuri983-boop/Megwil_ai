@@ -18,7 +18,7 @@ def configure_private_storage() -> Path:
         raise RuntimeError("Android host must provide JARVIS_ANDROID_DATA_DIR")
     root = Path(raw_root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
-    for name in ("config", "data", "models", "bin", "logs"):
+    for name in ("config", "data", "models", "bin", "lib", "logs"):
         path = root / name
         path.mkdir(parents=True, exist_ok=True)
         try:
@@ -57,7 +57,6 @@ def inspect_runtime() -> dict[str, object]:
         "platform": sys.platform,
         "android_api": getattr(sys, "getandroidapilevel", lambda: None)(),
         "data_dir": str(root),
-        "modules": modules,
         "android_python_runtime": android_python,
         "modules": modules,
         "sidecars": bins,
