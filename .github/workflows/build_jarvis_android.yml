@@ -1,11 +1,8 @@
 name: Build JARVIS V3 Android APK
 
+# Fail-closed: legacy APK workflow is disabled until it consumes the fully
+# prepared Android project and verifies OAuth, signing, and model consent.
 on:
-  push:
-    branches: ["jarvis-android-fix"]
-    paths:
-      - "jarvis-app-android-v3.zip"
-      - ".github/workflows/build_jarvis_android.yml"
   workflow_dispatch:
 
 permissions:
@@ -13,6 +10,7 @@ permissions:
 
 jobs:
   build-jarvis-android:
+    if: false # Prevent a partial APK while integrated runtime prerequisites remain unverified.
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
