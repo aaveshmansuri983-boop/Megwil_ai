@@ -74,7 +74,10 @@ chaquopy {
     manifest_text = manifest.read_text()
     permission = '<uses-permission android:name="android.permission.RECORD_AUDIO" />'
     if permission not in manifest_text:
-        pos = manifest_text.find(">")
+        manifest_start = manifest_text.find("<manifest")
+        pos = manifest_text.find(">", manifest_start)
+        if manifest_start < 0 or pos < 0:
+            raise SystemExit("AndroidManifest.xml has no manifest root element")
         manifest_text = manifest_text[:pos + 1] + "\n    " + permission + manifest_text[pos + 1:]
         manifest.write_text(manifest_text)
     print("Chaquopy Gradle plugin and Android Python sources configured.")
