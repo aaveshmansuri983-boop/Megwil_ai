@@ -79,6 +79,8 @@ def main() -> int:
     from llm.bootstrap import start_local_llm
     start_local_llm()
     if callable(getattr(sys, "getandroidapilevel", None)):
+        os.environ["TTS_PROVIDER"] = "android"
+        os.environ["OUTPUT_MODE"] = "voice"
         import android_sounddevice
         sys.modules["sounddevice"] = android_sounddevice
     from jarvis.main import main as jarvis_main
