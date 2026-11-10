@@ -107,15 +107,29 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
           echo "NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - name: Cache Rust and Tauri CLI
+        id: cargo-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: jarvis-tauri-cli-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust Android target and Tauri CLI
+        timeout-minutes: 35
         env:
           CARGO_NET_RETRY: "5"
           CARGO_HTTP_TIMEOUT: "120"
         run: |
+          set -euo pipefail
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add aarch64-linux-android
-          cargo install tauri-cli --version "^2" --locked --jobs 2
+          if ! command -v cargo-tauri >/dev/null 2>&1; then
+            cargo install tauri-cli --version "^2" --locked --jobs 2
+          fi
+          cargo tauri --version
       - name: Initialize generated Android project
         working-directory: ${{ steps.source.outputs.project }}
         env:
