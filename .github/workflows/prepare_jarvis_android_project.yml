@@ -93,9 +93,6 @@ jobs:
         working-directory: ${{ steps.source.outputs.project }}
         env:
           CI: "true"
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-          NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo tauri android init --ci --skip-targets-install
       - name: Collect OAuth package and provisional debug signing details
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
@@ -144,10 +141,6 @@ jobs:
         run: ./gradlew :app:compileDebugKotlin --no-daemon
       - name: Check Android Rust host integration (no APK)
         working-directory: ${{ steps.source.outputs.project }}/src-tauri
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-          NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo check --target aarch64-linux-android
       - name: Record preparation-only result
         if: always()
