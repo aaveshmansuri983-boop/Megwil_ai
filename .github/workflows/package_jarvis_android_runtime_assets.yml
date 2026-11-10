@@ -14,6 +14,10 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: jarvis-android-runtime-assets
+  cancel-in-progress: true
+
 jobs:
   package-runtime-assets:
     if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
