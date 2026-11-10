@@ -99,6 +99,32 @@ jobs:
         env:
           CI: "true"
         run: cargo tauri android init --ci --skip-targets-install
+      - name: Configure embedded Python, native voice, and private runtime assets
+        run: |
+          python jarvis-android-runtime/configure_chaquopy.py \
+            --project "$PROJECT" \
+            --runtime "$GITHUB_WORKSPACE/jarvis-android-runtime" \
+            --backend-source "$RUNNER_TEMP/backend/python" \
+            --runtime-assets "$RUNNER_TEMP/runtime-assets"
+      - name: Generate Tauri Gradle integration and check Rust Android host (no APK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          IDENTIFIER="$(python -c 'import json; print(json.load(open("'"$PROJECT"'/src-tauri/tauri.conf.json"))["identifier"])')"
+          PACKAGE_PATH="${IDENTIFIER//./\/}"
+          KOTLIN_OUT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH/generated"
+          mkdir -p "$KOTLIN_OUT"
+          export TAURI_ANDROID_PROJECT_PATH="$PROJECT/src-tauri/gen/android"
+          export TAURI_ANDROID_PACKAGE_UNESCAPED="$IDENTIFIER"
+          export WRY_ANDROID_PACKAGE="$IDENTIFIER"
+          export WRY_ANDROID_KOTLIN_FILES_OUT_DIR="$KOTLIN_OUT"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES"
+          export TAURI_ENV_PLATFORM=android
+          cd "$PROJECT/src-tauri"
+          cargo check --target aarch64-linux-android
+          test -s "$TAURI_ANDROID_PROJECT_PATH/tauri.settings.gradle"
+          test -s "$TAURI_ANDROID_PROJECT_PATH/app/tauri.build.gradle.kts"
       - name: Collect OAuth package and provisional debug signing details
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         env:
@@ -131,22 +157,12 @@ jobs:
             cat "$RUNNER_TEMP/oauth-preflight.json"
             echo "- A stable signing certificate is still required before final Android OAuth registration."
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Configure embedded Python, native voice, and private runtime assets
-        run: |
-          python jarvis-android-runtime/configure_chaquopy.py \
-            --project "$PROJECT" \
-            --runtime "$GITHUB_WORKSPACE/jarvis-android-runtime" \
-            --backend-source "$RUNNER_TEMP/backend/python" \
-            --runtime-assets "$RUNNER_TEMP/runtime-assets"
       - name: Verify Python package compatibility (no APK)
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         run: ./gradlew :app:generateDebugPythonRequirements --no-daemon
       - name: Compile native Android voice bridge (no APK)
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         run: ./gradlew :app:compileDebugKotlin --no-daemon
-      - name: Check Android Rust host integration (no APK)
-        working-directory: ${{ steps.source.outputs.project }}/src-tauri
-        run: cargo check --target aarch64-linux-android
       - name: Record preparation-only result
         if: always()
         run: |
