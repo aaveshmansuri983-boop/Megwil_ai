@@ -12,14 +12,23 @@ PLUGIN = 'id("com.chaquo.python")'
 VERSION = 'id("com.chaquo.python") version "17.2.0" apply false'
 
 
-def insert_plugin(path: Path, line: str) -> None:
+def insert_plugin(path: Path, line: str, after: str | None = None) -> None:
     text = path.read_text()
     if line in text:
         return
     marker = "plugins {"
     if marker not in text:
         raise SystemExit(f"Cannot safely locate plugins block in {path}")
-    text = text.replace(marker, marker + "\n    " + line, 1)
+    if after:
+        pos = text.find(after)
+        if pos < 0:
+            raise SystemExit(f"Cannot locate required Android Gradle plugin in {path}")
+        end = text.find("\n", pos)
+        if end < 0:
+            end = text.find("}", pos)
+        text = text[:end + 1] + "    " + line + "\n" + text[end + 1:]
+    else:
+        text = text.replace(marker, marker + "\n    " + line, 1)
     path.write_text(text)
 
 
@@ -43,7 +52,7 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
                 settings.write_text(st)
 
     insert_plugin(root_gradle, VERSION)
-    insert_plugin(app_gradle, PLUGIN)
+    insert_plugin(app_gradle, PLUGIN, after='id("com.android.application")')
     app_text = app_gradle.read_text()
     if "chaquopy {" not in app_text:
         app_text += """
