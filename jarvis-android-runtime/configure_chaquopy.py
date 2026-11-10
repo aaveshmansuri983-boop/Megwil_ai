@@ -155,7 +155,7 @@ chaquopy {
         activation_pos = activation_text.find(activation_anchor)
         if activation_pos < 0:
             raise SystemExit("Cannot safely patch Project-JARVIS activation provider factory")
-        activation_text = activation_text[:activation_pos] + '    if provider == "android":\\n        from .android_activation import AndroidActivation\\n        return AndroidActivation(**kwargs)\\n' + activation_text[activation_pos:]
+        activation_text = activation_text[:activation_pos] + '    if provider == "android":\n        from .android_activation import AndroidActivation\n        return AndroidActivation(**kwargs)\n' + activation_text[activation_pos:]
         activation_init.write_text(activation_text)
 
     # Register the Kotlin plugin in the Android-only Rust build copy.
