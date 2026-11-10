@@ -1,0 +1,22 @@
+name: Test JARVIS Android Runtime Overlay
+
+on:
+  push:
+    branches: ["jarvis-android-fix"]
+    paths:
+      - "jarvis-android-runtime/**"
+      - ".github/workflows/test_jarvis_android_runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-runtime-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Android runtime overlay
+        run: python3 -m compileall -q jarvis-android-runtime
+      - name: Test private storage and fail-closed readiness report
+        run: python3 -m unittest discover -s jarvis-android-runtime/tests -v
