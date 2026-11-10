@@ -272,7 +272,7 @@ permissions = [
         "platforms": ["android"],
         "permissions": ["core:default", "jarvis-voice:default"],
     }
-    (capabilities_dir / "jarvis-android-voice.json").write_text(json.dumps(voice_capability, indent=2) + "\\n")
+    (capabilities_dir / "jarvis-android-voice.json").write_text(json.dumps(voice_capability, indent=2) + "\n")
 
     # Register the Kotlin plugin in the Android-only Rust build copy.
     lib_rs = project / "src-tauri" / "src" / "lib.rs"
