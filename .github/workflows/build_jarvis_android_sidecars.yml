@@ -4,7 +4,7 @@ on:
   push:
     branches: ["jarvis-android-fix"]
     paths:
-      - "jarvis-android-runtime/**"
+      - "jarvis-android-runtime/sidecars/**"
       - ".github/workflows/build_jarvis_android_sidecars.yml"
   workflow_dispatch:
 
