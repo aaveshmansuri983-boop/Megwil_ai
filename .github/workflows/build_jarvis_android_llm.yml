@@ -53,6 +53,8 @@ jobs:
           mkdir -p dist/bin dist/lib
           cp "$SERVER" dist/bin/llama-server
           chmod 0755 dist/bin/llama-server
+          LLVM_STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          "$LLVM_STRIP" --strip-unneeded dist/bin/llama-server
 
           # llama-server is a small launcher; the actual implementation is in
           # these shared libraries. Package every required library beside it.
@@ -64,6 +66,7 @@ jobs:
               exit 1
             fi
             cp "$found" "dist/lib/$name"
+            "$LLVM_STRIP" --strip-unneeded "dist/lib/$name"
           done
 
           file dist/bin/llama-server dist/lib/*.so
