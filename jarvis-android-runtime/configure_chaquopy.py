@@ -106,24 +106,47 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
         app_text_before = app_text_before[:insert_at] + "\n" + abi_line + app_text_before[insert_at:]
     app_gradle.write_text(app_text_before)
 
-    # Tauri creates a universal ABI flavor alongside per-ABI flavors. Chaquopy
-    # attempts to configure every variant and fails on universalDebug because
-    # that variant includes armeabi-v7a. Keep the ARM64 flavor for this device
-    # and disable only the unsupported universal variant before task creation.
-    app_text = app_gradle.read_text()
-    if "androidComponents {" not in app_text:
-        app_text += """
+    # Tauri's Rust Gradle plugin always wires both the universal and each
+    # architecture-specific merge task. Keep the universal variant enabled,
+    # but constrain it to ARM64 and disable unsupported architecture flavors.
+    # The universal flavor therefore remains a valid ARM64-only variant, while
+    # the separate arm/x86 variants are not configured by Chaquopy.
+    gradle_properties = android / "gradle.properties"
+    properties_text = gradle_properties.read_text() if gradle_properties.is_file() else ""
 
-// Chaquopy 3.14 has no armeabi-v7a runtime; build the ARM64 flavor only.
+    def set_gradle_property(text: str, key: str, value: str) -> str:
+        import re
+        line = f"{key}={value}"
+        pattern = re.compile(rf"(?m)^\\s*{re.escape(key)}=.*$")
+        if pattern.search(text):
+            return pattern.sub(line, text, count=1)
+        return text.rstrip() + ("\\n" if text.strip() else "") + line + "\\n"
+
+    properties_text = set_gradle_property(properties_text, "abiList", "arm64-v8a")
+    properties_text = set_gradle_property(properties_text, "archList", "arm64")
+    properties_text = set_gradle_property(properties_text, "targetList", "aarch64")
+    gradle_properties.write_text(properties_text)
+
+    # Tauri's universal flavor must remain enabled because RustPlugin.kt
+    # unconditionally wires mergeUniversal*JniLibFolders. Only unsupported
+    # per-architecture flavors are disabled; universal is ARM64-only via
+    # abiList above, and arm64 is the matching split flavor.
+    app_text = app_gradle.read_text()
+    app_text += """
+
+// Chaquopy 3.14 supports ARM64, not 32-bit arm or x86 Android variants.
+// Keep Tauri's universal flavor (its ABI list is constrained to arm64-v8a).
 androidComponents {
     beforeVariants(selector().all()) { variant ->
-        if (variant.name.startsWith("universal", ignoreCase = true)) {
+        val name = variant.name
+        if (!name.startsWith("arm64", ignoreCase = true) &&
+            !name.startsWith("universal", ignoreCase = true)) {
             variant.enable = false
         }
     }
 }
 """
-        app_gradle.write_text(app_text)
+    app_gradle.write_text(app_text)
 
     app_text = app_gradle.read_text()
     if "chaquopy {" not in app_text:
