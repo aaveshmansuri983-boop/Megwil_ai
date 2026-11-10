@@ -1,4 +1,5 @@
 name: Prepare and verify integrated JARVIS Android project (no APK)
+# Validates Python, native STT/TTS, runtime assets and Rust host without packaging.
 
 on:
   push:
