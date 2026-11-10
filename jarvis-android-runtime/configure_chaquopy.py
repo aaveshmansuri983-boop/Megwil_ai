@@ -76,7 +76,7 @@ chaquopy {
     python_dir = android / "app" / "src" / "main" / "python"
     python_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(backend_source / "jarvis", python_dir / "jarvis", dirs_exist_ok=True)
-    for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "android_audio.py", "android_sounddevice.py", "requirements-android.txt"):
+    for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "android_audio.py", "android_sounddevice.py", "android_tts.py", "requirements-android.txt"):
         src = runtime / name
         if not src.is_file():
             raise SystemExit(f"Android Python runtime input missing: {src}")
@@ -95,11 +95,24 @@ chaquopy {
     # Copy the native voice host and Tauri v2 plugin wrapper into the generated app.
     kotlin_dir = android / "app" / "src" / "main" / "java" / "com" / "jarvis" / "android" / "host"
     kotlin_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "RuntimeAssetInstaller.kt"):
+    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "RuntimeAssetInstaller.kt", "AndroidTtsRouter.kt"):
         src = runtime / "android-host" / name
         if not src.is_file():
             raise SystemExit(f"Native Android voice source missing: {src}")
         shutil.copy2(src, kotlin_dir / name)
+
+    # Add the Android TextToSpeech provider to Project-JARVIS' existing factory.
+    tts_init = python_dir / "jarvis" / "voice" / "tts" / "__init__.py"
+    if not tts_init.is_file():
+        raise SystemExit("Project-JARVIS TTS provider factory is missing")
+    tts_text = tts_init.read_text()
+    if 'provider == "android"' not in tts_text:
+        anchor_tts = '    raise ValueError(f"Unknown TTS provider:'
+        pos_tts = tts_text.find(anchor_tts)
+        if pos_tts < 0:
+            raise SystemExit("Cannot safely patch Project-JARVIS TTS provider factory")
+        tts_text = tts_text[:pos_tts] + '    if provider == "android":\\n        from .android_tts import AndroidTTS\\n        return AndroidTTS(**kwargs)\\n' + tts_text[pos_tts:]
+        tts_init.write_text(tts_text)
 
     # Register the Kotlin plugin in the Android-only Rust build copy.
     lib_rs = project / "src-tauri" / "src" / "lib.rs"
