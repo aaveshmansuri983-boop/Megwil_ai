@@ -14,6 +14,10 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: jarvis-android-project-preparation
+  cancel-in-progress: true
+
 jobs:
   prepare-project:
     if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
