@@ -1,0 +1,56 @@
+name: Prepare Project-JARVIS Android Python backend (no APK)
+
+on:
+  push:
+    branches: ["jarvis-android-fix"]
+    paths:
+      - ".github/workflows/prepare_jarvis_android_backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-python-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fetch pinned upstream Project-JARVIS source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/Project-JARVIS"
+          git -C "$RUNNER_TEMP/Project-JARVIS" remote add origin https://github.com/JarvisOSLinux/Project-JARVIS.git
+          git -C "$RUNNER_TEMP/Project-JARVIS" fetch --depth 1 origin 3ca38c7d75de146e6c85994aa16b77aaa3c2294c
+          git -C "$RUNNER_TEMP/Project-JARVIS" checkout --detach FETCH_HEAD
+          echo "PROJECT_JARVIS_SHA=$(git -C "$RUNNER_TEMP/Project-JARVIS" rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Apply isolated Android platform adapter
+        run: |
+          python jarvis-android-runtime/apply_overlay.py \
+            --source "$RUNNER_TEMP/Project-JARVIS" \
+            --overlay "$GITHUB_WORKSPACE/jarvis-android-runtime"
+      - name: Verify Python source and Android platform selection
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/Project-JARVIS/jarvis/main.py"
+          test -f "$RUNNER_TEMP/Project-JARVIS/jarvis/platform/android.py"
+          python -m compileall -q "$RUNNER_TEMP/Project-JARVIS/jarvis"
+      - name: Package Android Python backend source
+        run: |
+          set -euo pipefail
+          mkdir -p dist/python
+          cp -a "$RUNNER_TEMP/Project-JARVIS/jarvis" dist/python/
+          cp "$RUNNER_TEMP/Project-JARVIS/LICENSE" dist/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/Project-JARVIS/README.md" dist/
+          printf 'upstream_commit=%s\n' "$PROJECT_JARVIS_SHA" > dist/SOURCE.txt
+          tar -C dist -czf JARVIS-Android-Python-Backend.tar.gz python README.md SOURCE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Android-Python-Backend
+          path: JARVIS-Android-Python-Backend.tar.gz
+          if-no-files-found: error
+          retention-days: 30
