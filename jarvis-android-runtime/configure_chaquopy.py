@@ -153,7 +153,12 @@ chaquopy {
     # Enable the Tauri global API and add an Android-only microphone start control.
     config_path = project / "src-tauri" / "tauri.conf.json"
     config_data = json.loads(config_path.read_text())
-    config_data.setdefault("app", {})["withGlobalTauri"] = True
+    app_config = config_data.setdefault("app", {})
+    app_config["withGlobalTauri"] = True
+    security_config = app_config.setdefault("security", {})
+    configured_capabilities = security_config.get("capabilities")
+    if isinstance(configured_capabilities, list) and "jarvis-android-voice" not in configured_capabilities:
+        configured_capabilities.append("jarvis-android-voice")
     config_path.write_text(json.dumps(config_data, indent=2) + "\n")
     web_src = project / "src"
     if not web_src.is_dir():
