@@ -60,9 +60,9 @@ class AndroidBootstrapTests(unittest.TestCase):
         with mock.patch.object(android_sounddevice, "_audio_router", router):
             first.start()
             second.start()
-            android_audio.feed(b"\\x01\\x00" * 4)
+            android_audio.feed(b"\x01\x00" * 4)
             self.assertEqual(router.starts, 1)
-            self.assertEqual(received, [(b"\\x01\\x00" * 4, 4)])
+            self.assertEqual(received, [(b"\x01\x00" * 4, 4)])
             first.stop()
             self.assertEqual(router.stops, 0)
             second.stop()
