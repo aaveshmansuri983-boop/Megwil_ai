@@ -41,8 +41,9 @@ JARVIS source or the MEGWIL Android project.
   CPU-only, two threads and a 1024-token context for the 4 GB physical-RAM
   target.
 - Native Android TextToSpeech is exposed as a Project-JARVIS TTS provider.
-  The selected Android STT provider uses native SpeechRecognizer and forwards
-  partial/final transcripts into Project-JARVIS. It requests offline recognition,
+  The selected Android STT and wake-word activation providers use native
+  SpeechRecognizer and forward partial/final transcripts into Project-JARVIS.
+  They request offline recognition,
   but actual offline availability depends on the speech service and language pack
   installed on the phone. A separate AudioRecord bridge also streams 16 kHz mono
   PCM into a Python sounddevice compatibility shim for a future on-device Vosk
