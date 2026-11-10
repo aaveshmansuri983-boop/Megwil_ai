@@ -17,26 +17,42 @@ from pathlib import Path
 MODEL_NAME = "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"
 MODEL_URL = (
     "https://huggingface.co/bartowski/"
-    "Qwen2.5-0.5B-Instruct-GGUF/resolve/main/"
+    "Qwen2.5-0.5B-Instruct-GGUF/resolve/d71b21e09fe053c278d73092a855b8a99684693a/"
     + MODEL_NAME
 )
 MODEL_PATH = Path(os.environ.get("JARVIS_MODELS_DIR", "")) / MODEL_NAME
+MODEL_SHA256 = "6eb923e7d26e9cea28811e1a8e852009b21242fb157b26149d3b188f3a8c8653"
 SERVER_PATH = Path(os.environ.get("JARVIS_ANDROID_DATA_DIR", "")) / "bin" / "llama-server"
 HOST = "127.0.0.1"
 PORT = 8080
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _download_model() -> Path:
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if MODEL_PATH.is_file() and MODEL_PATH.stat().st_size > 100_000_000:
-        return MODEL_PATH
+    if MODEL_PATH.is_file():
+        if _file_sha256(MODEL_PATH) == MODEL_SHA256:
+            return MODEL_PATH
+        MODEL_PATH.unlink(missing_ok=True)
     partial = MODEL_PATH.with_suffix(MODEL_PATH.suffix + ".part")
+    partial.unlink(missing_ok=True)
     request = urllib.request.Request(MODEL_URL, headers={"User-Agent": "JARVIS-Android"})
     with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as out:
         shutil.copyfileobj(response, out)
     if partial.stat().st_size < 100_000_000:
         partial.unlink(missing_ok=True)
         raise RuntimeError("Downloaded GGUF model is unexpectedly small")
+    actual_sha256 = _file_sha256(partial)
+    if actual_sha256 != MODEL_SHA256:
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(f"GGUF SHA-256 mismatch: expected {MODEL_SHA256}, got {actual_sha256}")
     partial.replace(MODEL_PATH)
     return MODEL_PATH
 
