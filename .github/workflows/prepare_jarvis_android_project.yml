@@ -156,6 +156,22 @@ jobs:
             --runtime "$GITHUB_WORKSPACE/jarvis-android-runtime" \
             --backend-source "$RUNNER_TEMP/backend/python" \
             --runtime-assets "$RUNNER_TEMP/runtime-assets"
+      - name: Enforce Android-specific Python requirements in generated project
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_REQUIREMENTS="$GITHUB_WORKSPACE/jarvis-android-runtime/requirements-android.txt"
+          test -s "$ANDROID_REQUIREMENTS"
+          # The generated Tauri project can contain more than one Python source-set
+          # requirements file. Ensure every Android build source set uses the
+          # pinned ARM64-compatible dependency list, not the desktop backend list.
+          mapfile -t REQUIREMENT_FILES < <(find "$PROJECT" -type f -path '*/src/main/python/requirements.txt' -print)
+          test "${#REQUIREMENT_FILES[@]}" -gt 0
+          for requirements_file in "${REQUIREMENT_FILES[@]}"; do
+            cp "$ANDROID_REQUIREMENTS" "$requirements_file"
+            echo "Applied Android requirements: $requirements_file"
+            grep -E '^(--extra-index-url|pydantic==|pydantic-core==)' "$requirements_file"
+          done
       - name: Generate Tauri Gradle integration and check Rust Android host (no APK)
         shell: bash
         run: |
