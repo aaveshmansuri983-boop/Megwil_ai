@@ -111,6 +111,10 @@ chaquopy {
     python_dir = android / "app" / "src" / "main" / "python"
     python_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(backend_source / "jarvis", python_dir / "jarvis", dirs_exist_ok=True)
+    mcp_source = backend_source / "mcp"
+    if not (mcp_source / "client" / "session.py").is_file():
+        raise SystemExit("Android-compatible vendored MCP client source is missing")
+    shutil.copytree(mcp_source, python_dir / "mcp", dirs_exist_ok=True)
     for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "android_audio.py", "android_sounddevice.py", "android_tts.py", "requirements-android.txt"):
         src = runtime / name
         if not src.is_file():
