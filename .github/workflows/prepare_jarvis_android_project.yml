@@ -111,7 +111,7 @@ jobs:
           # Tauri requires a bundle identifier, not a Java package name.
           # Keep hyphens intact here; the generated Kotlin package is sanitized
           # separately below so underscores never leak into the bundle ID.
-          if not identifier or not re.fullmatch(r"[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+", identifier):
+          if not identifier or not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", identifier):
               raise SystemExit(f"Invalid Tauri bundle identifier: {identifier!r}")
           print(f"Preserving valid Tauri bundle identifier: {identifier}")
           PY
