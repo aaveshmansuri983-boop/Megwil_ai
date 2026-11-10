@@ -57,8 +57,9 @@ JARVIS source or the MEGWIL Android project.
 - The Vosk native STT engine/model are not yet bundled for Chaquopy. The
   SpeechRecognizer fallback depends on the speech service and offline language
   pack available on the phone.
-- `android-host/voice-bridge.ts` exposes the plugin API, but the existing
-  frontend still needs its microphone/speech controls connected to those calls.
+- The generated Android frontend receives a floating Start JARVIS control. It
+  requests microphone permission, initializes the native plugin and starts the
+  Python backend. This flow still needs a real-device test.
 - Google OAuth Web and Android Client IDs have not been supplied or verified.
   Android OAuth also needs the final application ID and a stable signing
   certificate SHA-1. Never put a client secret in the APK.
