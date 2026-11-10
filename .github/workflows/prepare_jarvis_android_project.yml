@@ -177,12 +177,32 @@ jobs:
         run: |
           set -euo pipefail
           IDENTIFIER="$(python -c 'import json; print(json.load(open("'"$PROJECT"'/src-tauri/tauri.conf.json"))["identifier"])')"
-          PACKAGE_PATH="${IDENTIFIER//./\/}"
+          # Tauri sanitizes hyphens in the generated MainActivity package, but
+          # Wry receives this explicit package override. Apply the same safe
+          # Kotlin identifier to keep generated Wry sources in that namespace.
+          KOTLIN_PACKAGE="$(python - "$IDENTIFIER" <<'PY'
+          import re
+          import sys
+          parts = []
+          for segment in sys.argv[1].split("."):
+              part = re.sub(r"[^A-Za-z0-9_]", "_", segment)
+              if not part:
+                  part = "_"
+              if part[0].isdigit():
+                  part = "_" + part
+              parts.append(part)
+          package = ".".join(parts)
+          if len(parts) < 2 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+", package):
+              raise SystemExit(f"Invalid sanitized Kotlin package: {package}")
+          print(package)
+          PY
+          )"
+          PACKAGE_PATH="${KOTLIN_PACKAGE//./\/}"
           KOTLIN_OUT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH/generated"
           mkdir -p "$KOTLIN_OUT"
           export TAURI_ANDROID_PROJECT_PATH="$PROJECT/src-tauri/gen/android"
-          export TAURI_ANDROID_PACKAGE_UNESCAPED="$IDENTIFIER"
-          export WRY_ANDROID_PACKAGE="$IDENTIFIER"
+          export TAURI_ANDROID_PACKAGE_UNESCAPED="$KOTLIN_PACKAGE"
+          export WRY_ANDROID_PACKAGE="$KOTLIN_PACKAGE"
           export WRY_ANDROID_KOTLIN_FILES_OUT_DIR="$KOTLIN_OUT"
           export WRY_ANDROID_LIBRARY="$(python - "$PROJECT/src-tauri/Cargo.toml" <<'PY'
           import sys
