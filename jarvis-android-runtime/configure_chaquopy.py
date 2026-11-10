@@ -209,6 +209,16 @@ chaquopy {
     permissions_dir.mkdir(parents=True, exist_ok=True)
     permission_file = permissions_dir / "jarvis-voice.toml"
     permission_file.write_text("""[[permission]]
+identifier = "allow-check-permissions"
+description = "Allows checking the Android microphone permission state."
+commands.allow = ["checkPermissions"]
+
+[[permission]]
+identifier = "allow-request-permissions"
+description = "Allows requesting the Android microphone permission."
+commands.allow = ["requestPermissions"]
+
+[[permission]]
 identifier = "allow-initialize"
 description = "Allows initializing the native JARVIS Android voice bridge."
 commands.allow = ["initialize"]
@@ -252,6 +262,8 @@ commands.allow = ["shutdown"]
 identifier = "default"
 description = "Allows the JARVIS Android voice controls used by the app."
 permissions = [
+    "allow-check-permissions",
+    "allow-request-permissions",
     "allow-initialize",
     "allow-start-backend",
     "allow-listen-once",
@@ -270,7 +282,7 @@ permissions = [
         "description": "Allows the main Android window to control native JARVIS voice services.",
         "windows": ["main"],
         "platforms": ["android"],
-        "permissions": ["core:default", "jarvis-voice:default"],
+        "permissions": ["core:default", "core:event:default", "jarvis-voice:default"],
     }
     (capabilities_dir / "jarvis-android-voice.json").write_text(json.dumps(voice_capability, indent=2) + "\n")
 
