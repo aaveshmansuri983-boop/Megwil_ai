@@ -113,7 +113,7 @@ jobs:
           if not normalized or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) for part in normalized.split(".")):
               raise SystemExit(f"Android application identifier is not a valid Java package: {normalized!r}")
           config["identifier"] = normalized
-          path.write_text(json.dumps(config, indent=2) + "\\n")
+          path.write_text(json.dumps(config, indent=2) + chr(10))
           print(f"Android-only application identifier normalized: {old} -> {normalized}")
           PY
       - name: Apply isolated desktop-safe Android source patch
