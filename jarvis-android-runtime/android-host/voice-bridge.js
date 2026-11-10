@@ -2,6 +2,8 @@
   const api = window.__TAURI__?.core?.invoke;
   if (!api || document.getElementById("jarvis-android-voice-start")) return;
 
+  const listen = window.__TAURI__?.event?.listen;
+
   const wrap = document.createElement("div");
   wrap.id = "jarvis-android-voice-controls";
   Object.assign(wrap.style, {
@@ -45,6 +47,20 @@
       button.disabled = false;
     }
   });
+
+  if (listen) {
+    listen("plugin:jarvis-voice|backendState", event => {
+      const state = event?.payload?.state;
+      if (state === "error" || state === "not-ready") {
+        status.textContent = event?.payload?.message || "JARVIS backend is not ready";
+        button.disabled = false;
+        button.textContent = "🎙 Start JARVIS";
+        button.style.background = "#1f6feb";
+      } else if (state === "starting") {
+        status.textContent = "JARVIS backend is starting…";
+      }
+    });
+  }
 
   wrap.append(status, button);
   document.body.appendChild(wrap);
