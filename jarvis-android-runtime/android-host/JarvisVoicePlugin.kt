@@ -77,58 +77,67 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(result)
             return
         }
-        try {
-            if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                result.put("started", false)
-                result.put("reason", "RECORD_AUDIO permission must be granted before backend startup")
-                invoke.resolve(result)
-                return
-            }
-            if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
-                result.put("started", false)
-                result.put("reason", "Android speech recognition service is unavailable")
-                invoke.resolve(result)
-                return
-            }
-            val audio = bridge
-            if (audio == null || !audio.isSpeechReady()) {
-                result.put("started", false)
-                result.put("reason", "Initialize the native TextToSpeech bridge and wait until it is ready")
-                invoke.resolve(result)
-                return
-            }
-            val runtimeRoot = RuntimeAssetInstaller.install(activity)
-            if (!Python.isStarted()) Python.start(AndroidPlatform(activity))
-            val python = Python.getInstance()
-            val environ = python.getModule("os").get("environ")
-            environ.callAttr("__setitem__", "JARVIS_ANDROID_DATA_DIR", runtimeRoot.absolutePath)
-            environ.callAttr("__setitem__", "JARVIS_ANDROID_VOICE_BRIDGE_READY", "1")
-            backendStarted = true
-            trigger("backendState", JSObject().apply { put("state", "starting") })
-            Thread({
-                try {
-                    val code = python.getModule("bootstrap").callAttr("main").toInt()
-                    backendStarted = false
-                    trigger("backendState", JSObject().apply {
-                        put("state", if (code == 0) "stopped" else "not-ready")
-                        put("exitCode", code)
-                    })
-                } catch (error: Throwable) {
-                    backendStarted = false
-                    trigger("backendState", JSObject().apply {
-                        put("state", "error")
-                        put("message", error.message ?: error.javaClass.simpleName)
-                    })
-                }
-            }, "Jarvis-Python-Backend").apply { isDaemon = true; start() }
-            result.put("started", true)
-            result.put("runtimePath", runtimeRoot.absolutePath)
-        } catch (error: Throwable) {
-            backendStarted = false
+        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             result.put("started", false)
-            result.put("reason", error.message ?: error.javaClass.simpleName)
+            result.put("reason", "RECORD_AUDIO permission must be granted before backend startup")
+            invoke.resolve(result)
+            return
         }
-        invoke.resolve(result)
+        if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
+            result.put("started", false)
+            result.put("reason", "Android speech recognition service is unavailable")
+            invoke.resolve(result)
+            return
+        }
+        val audio = bridge
+        if (audio == null || !audio.isSpeechReady()) {
+            result.put("started", false)
+            result.put("reason", "Initialize the native TextToSpeech bridge and wait until it is ready")
+            invoke.resolve(result)
+            return
+        }
+
+        backendStarted = true
+        trigger("backendState", JSObject().apply { put("state", "preparing-assets") })
+        Thread({
+            try {
+                // Copying and hashing native runtime assets can take time; never do it on the UI thread.
+                val runtimeRoot = RuntimeAssetInstaller.install(activity)
+                if (!Python.isStarted()) Python.start(AndroidPlatform(activity))
+                val python = Python.getInstance()
+                val environ = python.getModule("os").get("environ")
+                environ.callAttr("__setitem__", "JARVIS_ANDROID_DATA_DIR", runtimeRoot.absolutePath)
+                environ.callAttr("__setitem__", "JARVIS_ANDROID_VOICE_BRIDGE_READY", "1")
+                trigger("backendState", JSObject().apply { put("state", "starting") })
+                Thread({
+                    try {
+                        val code = python.getModule("bootstrap").callAttr("main").toInt()
+                        backendStarted = false
+                        trigger("backendState", JSObject().apply {
+                            put("state", if (code == 0) "stopped" else "not-ready")
+                            put("exitCode", code)
+                        })
+                    } catch (error: Throwable) {
+                        backendStarted = false
+                        trigger("backendState", JSObject().apply {
+                            put("state", "error")
+                            put("message", error.message ?: error.javaClass.simpleName)
+                        })
+                    }
+                }, "Jarvis-Python-Backend").apply { isDaemon = true; start() }
+                result.put("started", true)
+                result.put("runtimePath", runtimeRoot.absolutePath)
+            } catch (error: Throwable) {
+                backendStarted = false
+                result.put("started", false)
+                result.put("reason", error.message ?: error.javaClass.simpleName)
+                trigger("backendState", JSObject().apply {
+                    put("state", "error")
+                    put("message", error.message ?: error.javaClass.simpleName)
+                })
+            }
+            invoke.resolve(result)
+        }, "Jarvis-Android-Prepare").apply { isDaemon = true; start() }
     }
 
     private fun startSpeechRecognitionInternal(): Boolean {
