@@ -15,7 +15,7 @@ class AndroidSTT(STTProvider):
         self._router = jclass("com.jarvis.android.host.AndroidSpeechRouter")
 
     def _on_text(self, text: str, is_final: bool) -> None:
-        if self._running and text:
+        if self._running and (text or is_final):
             self._queue.put((str(text), bool(is_final)))
 
     def start(self) -> None:
@@ -34,7 +34,7 @@ class AndroidSTT(STTProvider):
     def iter_results(self) -> Generator[Tuple[str, bool], None, None]:
         while self._running:
             item = self.read(timeout=1.0)
-            if item is not None:
+            if item is not None and item[0]:
                 yield item
 
     def read(self, timeout: Optional[float] = None) -> Optional[Tuple[str, bool]]:
@@ -43,7 +43,6 @@ class AndroidSTT(STTProvider):
         try:
             item = self._queue.get(timeout=timeout)
         except Empty:
-            self._router.listenOnce()
             return None
         if item is None:
             return None
