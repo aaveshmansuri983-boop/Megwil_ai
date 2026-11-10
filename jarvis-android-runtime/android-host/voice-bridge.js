@@ -56,6 +56,8 @@
         button.disabled = false;
         button.textContent = "🎙 Start JARVIS";
         button.style.background = "#1f6feb";
+      } else if (state === "preparing-assets") {
+        status.textContent = "Verifying and installing Android runtime files…";
       } else if (state === "starting") {
         status.textContent = "JARVIS backend is starting…";
       }
