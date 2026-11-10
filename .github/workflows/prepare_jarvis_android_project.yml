@@ -1,0 +1,128 @@
+name: Prepare and verify integrated JARVIS Android project (no APK)
+
+on:
+  push:
+    branches: ["jarvis-android-fix"]
+    paths:
+      - ".github/workflows/prepare_jarvis_android_project.yml"
+  workflow_run:
+    workflows: ["Package JARVIS Android runtime assets (no APK)"]
+    types: [completed]
+    branches: ["jarvis-android-fix"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare-project:
+    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: jarvis-android-fix
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download latest successful runtime assets and Python backend
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow package_jarvis_android_runtime_assets.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          BACKEND_RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow prepare_jarvis_android_backend.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          test -n "$ASSET_RUN" && test "$ASSET_RUN" != "null"
+          test -n "$BACKEND_RUN" && test "$BACKEND_RUN" != "null"
+          gh run download "$ASSET_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-Runtime-Assets --dir "$RUNNER_TEMP/runtime-assets"
+          gh run download "$BACKEND_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-Python-Backend --dir "$RUNNER_TEMP/backend-artifact"
+          mkdir -p "$RUNNER_TEMP/backend"
+          BACKEND_TAR="$(find "$RUNNER_TEMP/backend-artifact" -type f -name 'JARVIS-Android-Python-Backend.tar.gz' | head -n 1)"
+          test -n "$BACKEND_TAR"
+          tar -xzf "$BACKEND_TAR" -C "$RUNNER_TEMP/backend"
+          echo "ASSET_RUN=$ASSET_RUN" >> "$GITHUB_ENV"
+          echo "BACKEND_RUN=$BACKEND_RUN" >> "$GITHUB_ENV"
+      - name: Verify and extract JARVIS V3 source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s jarvis-app-android-v3.zip
+          mkdir -p "$RUNNER_TEMP/jarvis-v3"
+          unzip -q jarvis-app-android-v3.zip -d "$RUNNER_TEMP/jarvis-v3"
+          PROJECT="$RUNNER_TEMP/jarvis-v3/jarvis-app-0.1.0"
+          test -f "$PROJECT/src-tauri/Cargo.toml"
+          test -f "$PROJECT/src-tauri/tauri.conf.json"
+          test -f "$PROJECT/src/index.html"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+      - name: Apply isolated desktop-safe Android source patch
+        run: python jarvis-android-runtime/patch_tauri_android.py "$PROJECT"
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Configure Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER"
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - name: Install Rust Android target and Tauri CLI
+        env:
+          CARGO_NET_RETRY: "5"
+          CARGO_HTTP_TIMEOUT: "120"
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-linux-android
+          cargo install tauri-cli --version "^2" --locked --jobs 2
+      - name: Initialize generated Android project
+        working-directory: ${{ env.PROJECT }}
+        env:
+          CI: "true"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+        run: cargo tauri android init --ci --skip-targets-install
+      - name: Configure embedded Python, native voice, and private runtime assets
+        run: |
+          python jarvis-android-runtime/configure_chaquopy.py \
+            --project "$PROJECT" \
+            --runtime "$GITHUB_WORKSPACE/jarvis-android-runtime" \
+            --backend-source "$RUNNER_TEMP/backend/python" \
+            --runtime-assets "$RUNNER_TEMP/runtime-assets"
+      - name: Verify Python package compatibility (no APK)
+        working-directory: ${{ env.PROJECT }}/src-tauri/gen/android
+        run: ./gradlew :app:generateDebugPythonRequirements --no-daemon
+      - name: Compile native Android voice bridge (no APK)
+        working-directory: ${{ env.PROJECT }}/src-tauri/gen/android
+        run: ./gradlew :app:compileDebugKotlin --no-daemon
+      - name: Check Android Rust host integration (no APK)
+        working-directory: ${{ env.PROJECT }}/src-tauri
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+        run: cargo check --target aarch64-linux-android
+      - name: Record preparation-only result
+        if: always()
+        run: |
+          {
+            echo "## JARVIS Android preparation"
+            echo "- APK build: **not run**"
+            echo "- Runtime asset artifact run: $ASSET_RUN"
+            echo "- Python backend artifact run: $BACKEND_RUN"
+            echo "- Checks attempted: Chaquopy Python dependencies, Kotlin native voice bridge, Rust Android host."
+            echo "- MEGWIL and desktop JARVIS source were not modified."
+          } >> "$GITHUB_STEP_SUMMARY"
