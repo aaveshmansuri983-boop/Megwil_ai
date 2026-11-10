@@ -59,6 +59,10 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 { text -> activity.runOnUiThread { bridge?.speak(text) } },
                 { activity.runOnUiThread { bridge?.stopSpeaking() } }
             )
+            AndroidAudioRouter.install(
+                { bridge?.startRecording() == true },
+                { bridge?.stopRecording() }
+            )
             AndroidSpeechRouter.install(
                 { activity.runOnUiThread { startSpeechRecognitionInternal() } },
                 { activity.runOnUiThread { stopSpeechRecognitionInternal() } },
@@ -249,6 +253,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
         bridge = null
         AndroidTtsRouter.clear()
         AndroidSpeechRouter.clear()
+        AndroidAudioRouter.clear()
         invoke.resolve(JSObject().apply { put("shutdown", true) })
     }
 }
