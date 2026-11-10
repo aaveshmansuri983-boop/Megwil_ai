@@ -50,7 +50,10 @@ jobs:
           set -euo pipefail
           mkdir -p dist/bin
           for component in dispatch dmcp contextor; do
-            cargo ndk -t arm64-v8a -o "$RUNNER_TEMP/out-$component" build --manifest-path "$RUNNER_TEMP/$component/Cargo.toml" --release
+            (
+              cd "$RUNNER_TEMP/$component"
+              cargo ndk -t arm64-v8a -o "$RUNNER_TEMP/out-$component" build --release
+            )
             test -x "$RUNNER_TEMP/out-$component/arm64-v8a/$component"
             cp "$RUNNER_TEMP/out-$component/arm64-v8a/$component" "dist/bin/$component"
             chmod 0755 "dist/bin/$component"
