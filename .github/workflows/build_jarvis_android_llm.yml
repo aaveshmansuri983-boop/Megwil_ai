@@ -1,0 +1,66 @@
+name: Build JARVIS Android local LLM runtime
+
+on:
+  push:
+    branches: ["jarvis-android-fix"]
+    paths:
+      - "jarvis-android-runtime/llm/**"
+      - ".github/workflows/build_jarvis_android_llm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-llama-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Configure Android NDK and CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" "ndk;27.0.12077973" "cmake;3.22.1"
+          NDK="$SDK_ROOT/ndk/27.0.12077973"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "CMAKE=$SDK_ROOT/cmake/3.22.1/bin/cmake" >> "$GITHUB_ENV"
+      - name: Fetch llama.cpp
+        run: git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+      - name: Build llama.cpp server for Android ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$CMAKE" -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama-build" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release -DGGML_OPENMP=OFF \
+            -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=ON -DLLAMA_BUILD_TOOLS=ON
+          "$CMAKE" --build "$RUNNER_TEMP/llama-build" --target llama-server -j2
+          SERVER="$(find "$RUNNER_TEMP/llama-build" -type f -name llama-server -perm -111 | head -n 1)"
+          test -n "$SERVER"
+          mkdir -p dist/bin
+          cp "$SERVER" dist/bin/llama-server
+          chmod 0755 dist/bin/llama-server
+          file dist/bin/llama-server
+          readelf -h dist/bin/llama-server | grep -E 'Class:|Machine:'
+          sha256sum dist/bin/llama-server > dist/SHA256SUMS.txt
+      - name: Package local LLM runtime
+        run: tar -C dist -czf JARVIS-Android-ARM64-LLM.tar.gz bin SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Android-ARM64-LLM
+          path: JARVIS-Android-ARM64-LLM.tar.gz
+          if-no-files-found: error
+          retention-days: 30
