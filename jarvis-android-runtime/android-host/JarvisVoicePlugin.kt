@@ -3,7 +3,6 @@ package com.jarvis.android.host
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
-import android.util.Base64
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import app.tauri.annotation.Command
@@ -38,12 +37,15 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
         if (bridge == null) {
             bridge = AudioHostBridge(
                 activity,
-                { pcm, sampleRate, channels ->
-                    val event = JSObject()
-                    event.put("pcm16Base64", Base64.encodeToString(pcm, Base64.NO_WRAP))
-                    event.put("sampleRate", sampleRate)
-                    event.put("channels", channels)
-                    trigger("audioFrame", event)
+                { pcm, _sampleRate, _channels ->
+                    // Feed PCM directly into the embedded Python Vosk input shim.
+                    if (Python.isStarted()) {
+                        try {
+                            Python.getInstance().getModule("android_audio").callAttr("feed", pcm)
+                        } catch (_: Throwable) {
+                            // Keep the AudioRecord capture thread alive; backend logs its own state.
+                        }
+                    }
                 },
                 { state ->
                     val event = JSObject()
