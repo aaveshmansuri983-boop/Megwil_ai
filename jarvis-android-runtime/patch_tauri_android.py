@@ -95,9 +95,10 @@ if '#[cfg(target_os = "android")]' not in ipc:
         raise SystemExit("Windows data-dir cfg not found")
     ipc = ipc[:pos] + '''    #[cfg(target_os = "android")]
     {
-        let base = std::env::var("HOME").or_else(|_| std::env::var("TMPDIR"))
-            .unwrap_or_else(|_| "/data/local/tmp".into());
-        format!("{}/jarvis", base)
+        std::env::var("JARVIS_DATA_DIR")
+            .or_else(|_| std::env::var("JARVIS_ANDROID_DATA_DIR").map(|root| format!("{}/data", root)))
+            .or_else(|_| std::env::var("HOME").map(|home| format!("{}/jarvis-runtime/data", home)))
+            .unwrap_or_else(|_| "/data/local/tmp/jarvis-runtime/data".into())
     }
 ''' + ipc[pos:]
     ipc_path.write_text(ipc)
