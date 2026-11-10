@@ -198,7 +198,7 @@ jobs:
           PY
           )"
           PACKAGE_PATH="${KOTLIN_PACKAGE//./\/}"
-          KOTLIN_OUT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH/generated"
+          KOTLIN_OUT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH"
           mkdir -p "$KOTLIN_OUT"
           export TAURI_ANDROID_PROJECT_PATH="$PROJECT/src-tauri/gen/android"
           export TAURI_ANDROID_PACKAGE_UNESCAPED="$KOTLIN_PACKAGE"
@@ -228,7 +228,7 @@ jobs:
           test -n "$MAIN_ACTIVITY"
           MAIN_PACKAGE="$(sed -n 's/^package[[:space:]]\+//p' "$MAIN_ACTIVITY" | head -n 1)"
           test "$MAIN_PACKAGE" = "$KOTLIN_PACKAGE"
-          grep -R --include='*.kt' -q "package $KOTLIN_PACKAGE.generated" "$KOTLIN_OUT"
+          grep -R --include='*.kt' -q "^package $KOTLIN_PACKAGE$" "$KOTLIN_OUT"
           if grep -R --include='*.kt' -nE '^package[[:space:]].*-' "$KOTLIN_OUT"; then
             echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
             exit 1
