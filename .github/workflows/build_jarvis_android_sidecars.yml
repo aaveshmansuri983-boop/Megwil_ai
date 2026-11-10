@@ -1,0 +1,73 @@
+name: Build JARVIS Android ARM64 backend sidecars
+
+on:
+  push:
+    branches: ["jarvis-android-fix"]
+    paths:
+      - "jarvis-android-runtime/**"
+      - ".github/workflows/build_jarvis_android_sidecars.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-sidecars:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Configure Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Fetch upstream Project-JARVIS runtime components
+        run: |
+          git clone --depth 1 https://github.com/JarvisOSLinux/dispatch.git "$RUNNER_TEMP/dispatch"
+          git clone --depth 1 https://github.com/JarvisOSLinux/dmcp.git "$RUNNER_TEMP/dmcp"
+          git clone --depth 1 https://github.com/JarvisOSLinux/contextor.git "$RUNNER_TEMP/contextor"
+      - name: Build ARM64 Android sidecars
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/bin
+          for component in dispatch dmcp contextor; do
+            cargo ndk -t arm64-v8a -o "$RUNNER_TEMP/out-$component" build --manifest-path "$RUNNER_TEMP/$component/Cargo.toml" --release
+            test -x "$RUNNER_TEMP/out-$component/arm64-v8a/$component"
+            cp "$RUNNER_TEMP/out-$component/arm64-v8a/$component" "dist/bin/$component"
+            chmod 0755 "dist/bin/$component"
+          done
+          file dist/bin/*
+          readelf -h dist/bin/dispatch | grep -E 'Class:|Machine:'
+          readelf -h dist/bin/dmcp | grep -E 'Class:|Machine:'
+          readelf -h dist/bin/contextor | grep -E 'Class:|Machine:'
+          sha256sum dist/bin/* > dist/SHA256SUMS.txt
+      - name: Package sidecar runtime
+        run: |
+          tar -C dist -czf JARVIS-Android-ARM64-Sidecars.tar.gz bin SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Android-ARM64-Sidecars
+          path: |
+            JARVIS-Android-ARM64-Sidecars.tar.gz
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
