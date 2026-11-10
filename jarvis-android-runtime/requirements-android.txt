@@ -1,7 +1,11 @@
-# Project-JARVIS core dependencies from the pinned upstream pyproject.toml.
-# Chaquopy/Android wheel availability must be confirmed by the no-APK Gradle preflight.
+# Project-JARVIS Android runtime dependencies.
+# MCP 1.13.1 client source is vendored into the Android-only Python tree by
+# prepare_mcp_android.py. Server/CLI extras and jsonschema/rpds are excluded
+# because rpds-py has no Chaquopy ARM64 wheel.
 ollama>=0.5.3
 python-dotenv>=1.1.1
-mcp[cli]>=1.13.1
 httpx>=0.28.1
 pathspec>=0.12.1
+anyio>=4.5
+pydantic>=2.11.0,<3.0.0
+typing-extensions>=4.12
