@@ -23,7 +23,7 @@ def insert_plugin(path: Path, line: str) -> None:
     path.write_text(text)
 
 
-def configure(project: Path, runtime: Path, backend_source: Path) -> None:
+def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets: Path) -> None:
     android = project / "src-tauri" / "gen" / "android"
     root_gradle = android / "build.gradle.kts"
     app_gradle = android / "app" / "build.gradle.kts"
@@ -77,6 +77,12 @@ chaquopy {
     if llm_src.is_dir():
         shutil.copytree(llm_src, python_dir / "llm", dirs_exist_ok=True)
 
+    # Bundle the previously verified ARM64 runtime artifact as APK assets.
+    if not (runtime_assets / "bin" / "dispatch").is_file() or not (runtime_assets / "bin" / "llama-server").is_file():
+        raise SystemExit(f"ARM64 runtime assets are incomplete: {runtime_assets}")
+    assets_dir = android / "app" / "src" / "main" / "assets" / "jarvis-runtime"
+    shutil.copytree(runtime_assets, assets_dir, dirs_exist_ok=True)
+
     # Copy the native voice host and Tauri v2 plugin wrapper into the generated app.
     kotlin_dir = android / "app" / "src" / "main" / "java" / "com" / "jarvis" / "android" / "host"
     kotlin_dir.mkdir(parents=True, exist_ok=True)
@@ -125,5 +131,6 @@ if __name__ == "__main__":
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--runtime", type=Path, default=Path(__file__).parent)
     parser.add_argument("--backend-source", type=Path, required=True, help="Extracted pinned Project-JARVIS source with Android overlay applied")
+    parser.add_argument("--runtime-assets", type=Path, required=True, help="Extracted JARVIS-Android-Runtime-Assets artifact directory")
     args = parser.parse_args()
-    configure(args.project.resolve(), args.runtime.resolve(), args.backend_source.resolve())
+    configure(args.project.resolve(), args.runtime.resolve(), args.backend_source.resolve(), args.runtime_assets.resolve())
