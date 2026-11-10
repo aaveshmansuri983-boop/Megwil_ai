@@ -109,7 +109,10 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 val runtimeRoot = RuntimeAssetInstaller.install(activity)
                 if (!Python.isStarted()) Python.start(AndroidPlatform(activity))
                 val python = Python.getInstance()
-                val environ = requireNotNull(python.getModule("os").get("environ")) {
+                val osModule = requireNotNull(python.getModule("os")) {
+                    "Chaquopy os module is unavailable"
+                }
+                val environ = requireNotNull(osModule.get("environ")) {
                     "Chaquopy os.environ is unavailable"
                 }
                 environ.callAttr("__setitem__", "JARVIS_ANDROID_DATA_DIR", runtimeRoot.absolutePath)
