@@ -106,6 +106,25 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
         app_text_before = app_text_before[:insert_at] + "\n" + abi_line + app_text_before[insert_at:]
     app_gradle.write_text(app_text_before)
 
+    # Tauri creates a universal ABI flavor alongside per-ABI flavors. Chaquopy
+    # attempts to configure every variant and fails on universalDebug because
+    # that variant includes armeabi-v7a. Keep the ARM64 flavor for this device
+    # and disable only the unsupported universal variant before task creation.
+    app_text = app_gradle.read_text()
+    if "androidComponents {" not in app_text:
+        app_text += """
+
+// Chaquopy 3.14 has no armeabi-v7a runtime; build the ARM64 flavor only.
+androidComponents {
+    beforeVariants(selector().all()) { variant ->
+        if (variant.name.startsWith("universal", ignoreCase = true)) {
+            variant.enable = false
+        }
+    }
+}
+"""
+        app_gradle.write_text(app_text)
+
     app_text = app_gradle.read_text()
     if "chaquopy {" not in app_text:
         app_text += """
