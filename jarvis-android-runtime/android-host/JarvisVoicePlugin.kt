@@ -53,6 +53,10 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                     trigger("speechState", event)
                 }
             ).also { it.initialize() }
+            AndroidTtsRouter.install(
+                { text -> bridge?.speak(text) },
+                { bridge?.stopSpeaking() }
+            )
         }
         val result = JSObject()
         result.put("ready", true)
@@ -136,6 +140,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     fun shutdown(invoke: Invoke) {
         bridge?.shutdown()
         bridge = null
+        AndroidTtsRouter.clear()
         val result = JSObject()
         result.put("shutdown", true)
         invoke.resolve(result)
