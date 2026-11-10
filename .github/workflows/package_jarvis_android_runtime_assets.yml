@@ -1,0 +1,73 @@
+name: Package JARVIS Android runtime assets (no APK)
+
+on:
+  workflow_run:
+    workflows: ["Build JARVIS Android local LLM runtime"]
+    types: [completed]
+    branches: ["jarvis-android-fix"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  package-runtime-assets:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: jarvis-android-fix
+      - name: Download successful ARM64 LLM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: JARVIS-Android-ARM64-LLM
+          path: llm-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Find latest successful sidecar artifact
+        id: sidecars
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build_jarvis_android_sidecars.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          test -n "$RUN_ID" && test "$RUN_ID" != "null"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+      - name: Download and unpack ARM64 components
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "${{ steps.sidecars.outputs.run_id }}" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-ARM64-Sidecars --dir sidecar-artifact
+          LLM_TAR="$(find llm-artifact -type f -name 'JARVIS-Android-ARM64-LLM.tar.gz' | head -n 1)"
+          SIDECAR_TAR="$(find sidecar-artifact -type f -name 'JARVIS-Android-ARM64-Sidecars.tar.gz' | head -n 1)"
+          test -n "$LLM_TAR" && test -n "$SIDECAR_TAR"
+          mkdir -p llm-unpacked sidecars-unpacked
+          tar -xzf "$LLM_TAR" -C llm-unpacked
+          tar -xzf "$SIDECAR_TAR" -C sidecars-unpacked
+          mkdir -p dist/jarvis-runtime/bin dist/jarvis-runtime/lib
+          cp sidecars-unpacked/bin/{dispatch,dmcp,contextor} dist/jarvis-runtime/bin/
+          cp llm-unpacked/bin/llama-server dist/jarvis-runtime/bin/
+          cp llm-unpacked/lib/*.so dist/jarvis-runtime/lib/
+          for name in libllama-server-impl.so libllama-common.so libmtmd.so libllama.so libggml.so libggml-cpu.so libggml-base.so; do
+            test -s "dist/jarvis-runtime/lib/$name"
+          done
+          chmod 0755 dist/jarvis-runtime/bin/*
+          (cd dist/jarvis-runtime && sha256sum bin/* lib/*.so > SHA256SUMS.txt)
+          {
+            echo "branch=jarvis-android-fix"
+            echo "llm_workflow_run=${{ github.event.workflow_run.id }}"
+            echo "sidecars_workflow_run=${{ steps.sidecars.outputs.run_id }}"
+            echo "abi=arm64-v8a"
+            echo "apk_built=false"
+          } > dist/jarvis-runtime/manifest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Android-Runtime-Assets
+          path: dist/jarvis-runtime/
+          if-no-files-found: error
+          retention-days: 30
