@@ -71,6 +71,36 @@ chaquopy {
     if llm_src.is_dir():
         shutil.copytree(llm_src, python_dir / "llm", dirs_exist_ok=True)
 
+    # Copy the native voice host and Tauri v2 plugin wrapper into the generated app.
+    kotlin_dir = android / "app" / "src" / "main" / "java" / "com" / "jarvis" / "android" / "host"
+    kotlin_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt"):
+        src = runtime / "android-host" / name
+        if not src.is_file():
+            raise SystemExit(f"Native Android voice source missing: {src}")
+        shutil.copy2(src, kotlin_dir / name)
+
+    # Register the Kotlin plugin in the Android-only Rust build copy.
+    lib_rs = project / "src-tauri" / "src" / "lib.rs"
+    rust = lib_rs.read_text()
+    anchor = "let builder = tauri::Builder::default();"
+    registration = """
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(
+        tauri::plugin::Builder::new("jarvis-voice")
+            .setup(|_app, api| {
+                api.register_android_plugin("com.jarvis.android.host", "JarvisVoicePlugin")?;
+                Ok(())
+            })
+            .build()
+    );
+"""
+    if "JarvisVoicePlugin" not in rust:
+        if anchor not in rust:
+            raise SystemExit("Cannot safely locate Android Tauri builder for voice plugin registration")
+        rust = rust.replace(anchor, anchor + registration, 1)
+        lib_rs.write_text(rust)
+
     manifest_text = manifest.read_text()
     permission = '<uses-permission android:name="android.permission.RECORD_AUDIO" />'
     if permission not in manifest_text:
