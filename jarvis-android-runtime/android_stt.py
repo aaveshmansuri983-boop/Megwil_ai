@@ -21,6 +21,8 @@ class AndroidSTT(STTProvider):
     def start(self) -> None:
         if self._running:
             return
+        if not self._router.isAvailable():
+            raise RuntimeError("Android SpeechRecognizer service or microphone permission is unavailable")
         self._running = True
         subscribe_text(self._on_text)
         self._router.listenOnce()
