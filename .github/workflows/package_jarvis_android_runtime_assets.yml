@@ -6,10 +6,7 @@ on:
     branches: ["jarvis-android-fix"]
     paths:
       - ".github/workflows/package_jarvis_android_runtime_assets.yml"
-      - ".github/workflows/build_jarvis_android_llm.yml"
-      - ".github/workflows/build_jarvis_android_sidecars.yml"
-      - "jarvis-android-runtime/llm/**"
-      - "jarvis-android-runtime/sidecars/**"
+  workflow_dispatch:
 
 permissions:
   actions: read
