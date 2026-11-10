@@ -224,6 +224,15 @@ jobs:
           cargo check --target aarch64-linux-android
           test -s "$TAURI_ANDROID_PROJECT_PATH/tauri.settings.gradle"
           test -s "$TAURI_ANDROID_PROJECT_PATH/app/tauri.build.gradle.kts"
+          MAIN_ACTIVITY="$(find "$TAURI_ANDROID_PROJECT_PATH/app/src/main/java" -name MainActivity.kt -print -quit)"
+          test -n "$MAIN_ACTIVITY"
+          MAIN_PACKAGE="$(sed -n 's/^package[[:space:]]\+//p' "$MAIN_ACTIVITY" | head -n 1)"
+          test "$MAIN_PACKAGE" = "$KOTLIN_PACKAGE"
+          grep -R --include='*.kt' -q "package $KOTLIN_PACKAGE.generated" "$KOTLIN_OUT"
+          if grep -R --include='*.kt' -nE '^package[[:space:]].*-' "$KOTLIN_OUT"; then
+            echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
+            exit 1
+          fi
       - name: Collect OAuth package and provisional debug signing details
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         env:
