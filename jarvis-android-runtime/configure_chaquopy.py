@@ -18,7 +18,11 @@ def insert_plugin(path: Path, line: str, after: str | None = None) -> None:
         return
     marker = "plugins {"
     if marker not in text:
-        raise SystemExit(f"Cannot safely locate plugins block in {path}")
+        if after:
+            raise SystemExit(f"Cannot safely locate plugins block in {path}")
+        text = marker + "\\n    " + line + "\\n}\\n\\n" + text
+        path.write_text(text)
+        return
     if after:
         pos = text.find(after)
         if pos < 0:
@@ -44,12 +48,32 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
     settings = android / "settings.gradle.kts"
     if settings.is_file():
         st = settings.read_text()
-        if "pluginManagement" in st and "mavenCentral()" not in st:
-            start = st.find("repositories {", st.find("pluginManagement"))
-            if start >= 0:
-                end = st.find("}", start)
-                st = st[:end] + "\n        mavenCentral()" + st[end:]
-                settings.write_text(st)
+        if "pluginManagement" not in st:
+            st = """pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+""" + st
+        else:
+            pm_start = st.find("pluginManagement")
+            repo_start = st.find("repositories {", pm_start)
+            if repo_start < 0:
+                pm_end = st.find("}", pm_start)
+                if pm_end < 0:
+                    raise SystemExit("Malformed pluginManagement block in settings.gradle.kts")
+                st = st[:pm_end] + "\\n    repositories { google(); mavenCentral(); gradlePluginPortal() }" + st[pm_end:]
+            else:
+                repo_end = st.find("}", repo_start)
+                repo_block = st[repo_start:repo_end]
+                for repository in ("google()", "mavenCentral()", "gradlePluginPortal()"):
+                    if repository not in repo_block:
+                        st = st[:repo_end] + "\\n        " + repository + st[repo_end:]
+                        repo_end = st.find("}", repo_start)
+        settings.write_text(st)
 
     insert_plugin(root_gradle, VERSION)
     insert_plugin(app_gradle, PLUGIN, after='id("com.android.application")')
