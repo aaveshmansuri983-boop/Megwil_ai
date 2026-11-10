@@ -34,17 +34,18 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null
           set -o pipefail
           "$SDKMANAGER" "ndk;27.0.12077973"
-          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          NDK="$SDK_ROOT/ndk/27.0.12077973"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$SDK_ROOT/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
       - name: Fetch upstream Project-JARVIS runtime components
         run: |
           git clone --depth 1 https://github.com/JarvisOSLinux/dispatch.git "$RUNNER_TEMP/dispatch"
           git clone --depth 1 https://github.com/JarvisOSLinux/dmcp.git "$RUNNER_TEMP/dmcp"
           git clone --depth 1 https://github.com/JarvisOSLinux/contextor.git "$RUNNER_TEMP/contextor"
-      - name: Build ARM64 Android sidecars
+      - name: Build ARM64 Android executables
         shell: bash
         run: |
           set -euo pipefail
@@ -52,20 +53,19 @@ jobs:
           for component in dispatch dmcp contextor; do
             (
               cd "$RUNNER_TEMP/$component"
-              cargo ndk -t arm64-v8a -o "$RUNNER_TEMP/out-$component" build --release
+              cargo build --target aarch64-linux-android --release --bin "$component"
             )
-            test -x "$RUNNER_TEMP/out-$component/arm64-v8a/$component"
-            cp "$RUNNER_TEMP/out-$component/arm64-v8a/$component" "dist/bin/$component"
+            test -x "$RUNNER_TEMP/$component/target/aarch64-linux-android/release/$component"
+            cp "$RUNNER_TEMP/$component/target/aarch64-linux-android/release/$component" "dist/bin/$component"
             chmod 0755 "dist/bin/$component"
           done
           file dist/bin/*
-          readelf -h dist/bin/dispatch | grep -E 'Class:|Machine:'
-          readelf -h dist/bin/dmcp | grep -E 'Class:|Machine:'
-          readelf -h dist/bin/contextor | grep -E 'Class:|Machine:'
+          for component in dispatch dmcp contextor; do
+            readelf -h "dist/bin/$component" | grep -E 'Class:|Machine:'
+          done
           sha256sum dist/bin/* > dist/SHA256SUMS.txt
       - name: Package sidecar runtime
-        run: |
-          tar -C dist -czf JARVIS-Android-ARM64-Sidecars.tar.gz bin SHA256SUMS.txt
+        run: tar -C dist -czf JARVIS-Android-ARM64-Sidecars.tar.gz bin SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Android-ARM64-Sidecars
