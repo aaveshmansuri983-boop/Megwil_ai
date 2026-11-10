@@ -83,7 +83,7 @@ def start_local_llm() -> subprocess.Popen:
     process = subprocess.Popen(
         [
             str(SERVER_PATH), "-m", str(model), "--host", HOST, "--port", str(PORT),
-            "-c", "1024", "-ngl", "99", "--threads", "2",
+            "-c", "1024", "-ngl", "0", "--threads", "2",
         ],
         cwd=str(log_dir), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
         start_new_session=True, env=env,
