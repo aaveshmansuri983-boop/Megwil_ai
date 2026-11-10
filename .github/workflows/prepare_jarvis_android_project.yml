@@ -99,6 +99,23 @@ jobs:
           test -f "$PROJECT/src/index.html"
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+      - name: Normalize Android application identifier for Java package generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$PROJECT/src-tauri/tauri.conf.json" <<'PY'
+          import json, re, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          config = json.loads(path.read_text())
+          old = config.get("identifier", "")
+          normalized = old.replace("-", "_")
+          if not normalized or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) for part in normalized.split(".")):
+              raise SystemExit(f"Android application identifier is not a valid Java package: {normalized!r}")
+          config["identifier"] = normalized
+          path.write_text(json.dumps(config, indent=2) + "\\n")
+          print(f"Android-only application identifier normalized: {old} -> {normalized}")
+          PY
       - name: Apply isolated desktop-safe Android source patch
         run: python jarvis-android-runtime/patch_tauri_android.py "$PROJECT"
       - name: Set up Java 17
