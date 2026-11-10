@@ -105,7 +105,7 @@ chaquopy {
     # Copy the native voice host and Tauri v2 plugin wrapper into the generated app.
     kotlin_dir = android / "app" / "src" / "main" / "java" / "com" / "jarvis" / "android" / "host"
     kotlin_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "RuntimeAssetInstaller.kt", "AndroidTtsRouter.kt"):
+    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "RuntimeAssetInstaller.kt", "AndroidTtsRouter.kt", "AndroidSpeechRouter.kt"):
         src = runtime / "android-host" / name
         if not src.is_file():
             raise SystemExit(f"Native Android voice source missing: {src}")
@@ -129,6 +129,20 @@ chaquopy {
     web_src = project / "src"
     if web_src.is_dir():
         shutil.copy2(runtime / "android-host" / "voice-bridge.ts", web_src / "jarvis-voice.ts")
+
+    # Add Android's native SpeechRecognizer provider to Project-JARVIS.
+    stt_init = python_dir / "jarvis" / "voice" / "stt" / "__init__.py"
+    if not stt_init.is_file():
+        raise SystemExit("Project-JARVIS STT provider factory is missing")
+    shutil.copy2(runtime / "android_stt.py", stt_init.parent / "android_stt.py")
+    stt_text = stt_init.read_text()
+    if 'provider == "android"' not in stt_text:
+        stt_anchor = '    raise ValueError(\\n        f"Unknown STT provider:'
+        stt_pos = stt_text.find(stt_anchor)
+        if stt_pos < 0:
+            raise SystemExit("Cannot safely patch Project-JARVIS STT provider factory")
+        stt_text = stt_text[:stt_pos] + '    if provider == "android":\\n        from .android_stt import AndroidSTT\\n        return AndroidSTT(**kwargs)\\n' + stt_text[stt_pos:]
+        stt_init.write_text(stt_text)
 
     # Register the Kotlin plugin in the Android-only Rust build copy.
     lib_rs = project / "src-tauri" / "src" / "lib.rs"
