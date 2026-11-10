@@ -7,8 +7,6 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
-import androidx.core.content.ContextCompat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -38,7 +36,7 @@ class AudioHostBridge(
     }
 
     fun startRecording(): Boolean {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) return false
         if (!running.compareAndSet(false, true)) return true
         val sampleRate = 16000
