@@ -115,12 +115,14 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
     properties_text = gradle_properties.read_text() if gradle_properties.is_file() else ""
 
     def set_gradle_property(text: str, key: str, value: str) -> str:
-        import re
-        line = f"{key}={value}"
-        pattern = re.compile(rf"(?m)^\\s*{re.escape(key)}=.*$")
-        if pattern.search(text):
-            return pattern.sub(line, text, count=1)
-        return text.rstrip() + ("\\n" if text.strip() else "") + line + "\\n"
+        lines = text.splitlines()
+        for index, existing in enumerate(lines):
+            if existing.partition("=")[0].strip() == key:
+                lines[index] = f"{key}={value}"
+                break
+        else:
+            lines.append(f"{key}={value}")
+        return "\\n".join(lines) + "\\n"
 
     properties_text = set_gradle_property(properties_text, "abiList", "arm64-v8a")
     properties_text = set_gradle_property(properties_text, "archList", "arm64")
