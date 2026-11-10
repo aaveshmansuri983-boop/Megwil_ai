@@ -55,8 +55,8 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 }
             ).also { it.initialize() }
             AndroidTtsRouter.install(
-                { text -> bridge?.speak(text) },
-                { bridge?.stopSpeaking() }
+                { text -> activity.runOnUiThread { bridge?.speak(text) } },
+                { activity.runOnUiThread { bridge?.stopSpeaking() } }
             )
             AndroidSpeechRouter.install(
                 { activity.runOnUiThread { startSpeechRecognitionInternal() } },
