@@ -60,7 +60,8 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             )
             AndroidSpeechRouter.install(
                 { activity.runOnUiThread { startSpeechRecognitionInternal() } },
-                { activity.runOnUiThread { stopSpeechRecognitionInternal() } }
+                { activity.runOnUiThread { stopSpeechRecognitionInternal() } },
+                { activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED && SpeechRecognizer.isRecognitionAvailable(activity) }
             )
         }
         invoke.resolve(JSObject().apply { put("ready", true) })
