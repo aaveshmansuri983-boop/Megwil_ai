@@ -104,6 +104,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             environ.callAttr("__setitem__", "JARVIS_ANDROID_DATA_DIR", runtimeRoot.absolutePath)
             environ.callAttr("__setitem__", "JARVIS_ANDROID_VOICE_BRIDGE_READY", "1")
             backendStarted = true
+            trigger("backendState", JSObject().apply { put("state", "starting") })
             Thread({
                 try {
                     val code = python.getModule("bootstrap").callAttr("main").toInt()
