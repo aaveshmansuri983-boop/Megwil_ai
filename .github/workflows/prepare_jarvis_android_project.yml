@@ -402,9 +402,9 @@ jobs:
           {
             echo "## Installable JARVIS V3 Android APK"
             echo "- ABI: ARM64 (arm64-v8a)"
-            echo "- Signing: debug certificate; suitable for direct testing, not Play Store release"
+            echo "- Signing: user-owned release keystore, verified against the configured stable SHA-1"
             echo "- APK SHA-1: $APK_SIGNING_SHA1"
-            echo "- Google Android OAuth client: not configured in this workflow; Google Sign-In may require later setup"
+            echo "- Google Android OAuth client: verified by the preflight before this step can run"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload JARVIS V3 Android APK
         if: steps.oauth.outputs.ready == 'true'
@@ -421,7 +421,7 @@ jobs:
         run: |
           {
             echo "## JARVIS Android preparation"
-            echo "- APK build: **completed by the preceding build/sign/upload steps when this job succeeds**"
+            echo "- APK build: **runs only when OAuth and stable release-signing preflight is ready; otherwise held**"
             echo "- LLM workflow run: $LLM_RUN"
             echo "- Sidecar workflow run: $SIDECAR_RUN"
             echo "- Python backend artifact run: $BACKEND_RUN"
