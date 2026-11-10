@@ -232,6 +232,27 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo tauri android build --apk --target aarch64 --ci
 
+      - name: Sign and verify installable APK
+        shell: bash
+        working-directory: ${{ steps.source.outputs.project }}
+        run: |
+          set -euo pipefail
+          APK="$(find src-tauri/gen/android -type f -name "*.apk" | head -n 1)"
+          test -n "$APK"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/jarvis-debug.keystore" \
+            -storepass android -alias androiddebugkey -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$RUNNER_TEMP/jarvis-debug.keystore" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android --key-pass pass:android \
+            "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+
       - name: Package APK
         shell: bash
         working-directory: ${{ steps.source.outputs.project }}
@@ -245,7 +266,7 @@ jobs:
           cat > "$GITHUB_WORKSPACE/dist/INSTALL.txt" <<'EOF'
           JARVIS V3 Android ARM64 test build
           Install JARVIS-V3-Android-arm64.apk on a compatible 64-bit Android device.
-          This is an unsigned CI test build; Play Store publication requires signing.
+          This APK is debug-signed for direct installation. A separate release key is required for Play Store publication.
           EOF
           sha256sum "$GITHUB_WORKSPACE/dist/JARVIS-V3-Android-arm64.apk" > "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt"
           (cd "$GITHUB_WORKSPACE/dist" && zip -9 "$GITHUB_WORKSPACE/JARVIS-V3-Android.zip" JARVIS-V3-Android-arm64.apk INSTALL.txt SHA256SUMS.txt)
