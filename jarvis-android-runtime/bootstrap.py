@@ -34,6 +34,9 @@ def configure_private_storage() -> Path:
     os.environ["JARVIS_GUI_SOCKET"] = str(root / "data" / "jarvis.sock")
     os.environ["JARVIS_INPUT_SOCKET"] = str(root / "data" / "input.sock")
     os.environ["JARVIS_OUTPUT_SOCKET"] = str(root / "data" / "output.sock")
+    bin_dir, lib_dir = str(root / "bin"), str(root / "lib")
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = lib_dir + (os.pathsep + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else "")
     return root
 
 
@@ -41,17 +44,29 @@ def inspect_runtime() -> dict[str, object]:
     root = configure_private_storage()
     required_modules = ("ollama", "dotenv", "mcp", "httpx", "pathspec")
     required_bins = ("dispatch", "dmcp", "contextor")
+    required_llm_libs = ("libllama-server-impl.so", "libllama-common.so", "libmtmd.so", "libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so")
     modules = {name: importlib.util.find_spec(name) is not None for name in required_modules}
     bins = {name: shutil.which(name) is not None or (root / "bin" / name).is_file()
             for name in required_bins}
+    llm = {"server": (root / "bin" / "llama-server").is_file(),
+           "libraries": {name: (root / "lib" / name).is_file() for name in required_llm_libs},
+           "model_present": any((root / "models").glob("*.gguf"))}
+    android_python = callable(getattr(sys, "getandroidapilevel", None))
+    voice_bridge = os.environ.get("JARVIS_ANDROID_VOICE_BRIDGE_READY") == "1"
+    sidecar_config = (root / "config" / "sidecars.json").is_file()
     return {
         "platform": sys.platform,
         "android_api": getattr(sys, "getandroidapilevel", lambda: None)(),
         "data_dir": str(root),
         "modules": modules,
+        "android_python_runtime": android_python,
+        "modules": modules,
         "sidecars": bins,
-        "ready": all(modules.values()) and all(bins.values()),
-        "voice_note": "Android voice requires the native AudioRecord/TextToSpeech host bridge; sounddevice is not assumed to work.",
+        "sidecar_launch_config_present": sidecar_config,
+        "llm": llm,
+        "native_voice_bridge_ready": voice_bridge,
+        "ready": android_python and all(modules.values()) and all(bins.values()) and sidecar_config and llm["server"] and all(llm["libraries"].values()) and voice_bridge,
+        "voice_note": "Host must instantiate AudioHostBridge, request RECORD_AUDIO permission, connect PCM to JARVIS input transport, and set JARVIS_ANDROID_VOICE_BRIDGE_READY=1 only after successful initialization.",
     }
 
 
@@ -62,6 +77,10 @@ def main() -> int:
     if not report["ready"]:
         print("JARVIS Android backend is NOT ready; refusing to start a partial daemon.")
         return 2
+    from sidecar_launcher import start_sidecars
+    start_sidecars(Path(report["data_dir"]))
+    from llm.bootstrap import start_local_llm
+    start_local_llm()
     from jarvis.main import main as jarvis_main
     jarvis_main()
     return 0
