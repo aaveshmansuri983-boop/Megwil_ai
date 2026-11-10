@@ -75,7 +75,7 @@ jobs:
           (cd dist/jarvis-runtime && sha256sum bin/* lib/*.so > SHA256SUMS.txt)
           {
             echo "branch=jarvis-android-fix"
-            echo "llm_workflow_run=${{ github.event.workflow_run.id }}"
+            echo "llm_workflow_run=${{ steps.llm.outputs.run_id }}"
             echo "sidecars_workflow_run=${{ steps.sidecars.outputs.run_id }}"
             echo "abi=arm64-v8a"
             echo "apk_built=false"
