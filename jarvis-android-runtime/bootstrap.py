@@ -78,6 +78,9 @@ def main() -> int:
     prepare_sidecars(Path(report["data_dir"]))
     from llm.bootstrap import start_local_llm
     start_local_llm()
+    if callable(getattr(sys, "getandroidapilevel", None)):
+        import android_sounddevice
+        sys.modules["sounddevice"] = android_sounddevice
     from jarvis.main import main as jarvis_main
     jarvis_main()
     return 0
