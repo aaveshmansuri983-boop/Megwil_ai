@@ -42,8 +42,10 @@ JARVIS source or the MEGWIL Android project.
   target.
 - Native Android TextToSpeech is exposed as a Project-JARVIS TTS provider.
   AudioRecord PCM is passed into a Python sounddevice compatibility shim.
-  Android SpeechRecognizer is also available as a one-shot fallback which
-  sends recognized text to the existing JARVIS input socket.
+  The selected Android STT provider uses native SpeechRecognizer and forwards
+  partial/final transcripts into Project-JARVIS. It requests offline recognition,
+  but actual offline availability depends on the speech service and language pack
+  installed on the phone.
 
 ## Remaining verification / user inputs
 
