@@ -154,6 +154,19 @@ jobs:
           export TAURI_ANDROID_PACKAGE_UNESCAPED="$IDENTIFIER"
           export WRY_ANDROID_PACKAGE="$IDENTIFIER"
           export WRY_ANDROID_KOTLIN_FILES_OUT_DIR="$KOTLIN_OUT"
+          export WRY_ANDROID_LIBRARY="$(python - "$PROJECT/src-tauri/Cargo.toml" <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+          manifest = tomllib.loads(Path(sys.argv[1]).read_text())
+          library = manifest.get("lib", {}).get("name")
+          if not library:
+              library = manifest["package"]["name"].replace("-", "_")
+          print(library)
+          PY
+          )"
+          test -n "$WRY_ANDROID_LIBRARY"
+          echo "Using WRY Android library: $WRY_ANDROID_LIBRARY"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES"
           export TAURI_ENV_PLATFORM=android
