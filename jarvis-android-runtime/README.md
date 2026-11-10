@@ -3,7 +3,7 @@
 This is an Android-only overlay and host integration. It does not modify the desktop
 JARVIS source or the MEGWIL Android project.
 
-## Preparation pipeline (APK deliberately disabled)
+## Preparation pipeline and fail-closed APK gate
 
 - `.github/workflows/prepare_jarvis_android_backend.yml` fetches a pinned
   Project-JARVIS source revision, applies the Android platform overlay, checks
@@ -22,8 +22,28 @@ JARVIS source or the MEGWIL Android project.
   binaries as APK assets. It only modifies a generated Android project copy.
 - `.github/workflows/prepare_jarvis_android_project.yml` initializes that
   generated Android project and checks Python package compatibility, Kotlin
-  compilation and Rust Android host integration. It deliberately does not
-  run `assemble`, `cargo tauri android build`, APK signing or release.
+  compilation and Rust Android host integration. It only starts the integrated
+  ARM64 APK build when the user's Google Web/Android OAuth configuration and
+  stable release-signing keystore have been verified. Otherwise it records the
+  exact missing prerequisites and holds the APK build without producing an
+  unsigned, debug-signed, or partially configured APK.
+
+### User-owned release prerequisites
+
+Configure these GitHub Actions secrets on the `jarvis-android-fix` repository
+before the final APK build:
+
+- `JARVIS_GOOGLE_WEB_CLIENT_ID` (or the existing `GOOGLE_WEB_CLIENT_ID`).
+- `JARVIS_GOOGLE_ANDROID_CLIENT_ID`, created in the user's Google Cloud
+  project for the exact generated Android application ID and signing SHA-1.
+- `JARVIS_ANDROID_STABLE_SIGNING_SHA1`, matching the certificate in the
+  release keystore.
+- `JARVIS_ANDROID_KEYSTORE_BASE64`, `JARVIS_ANDROID_KEYSTORE_PASSWORD`,
+  `JARVIS_ANDROID_KEY_ALIAS`, and `JARVIS_ANDROID_KEY_PASSWORD`.
+
+The workflow validates the keystore certificate SHA-1 against the configured
+fingerprint and never prints secret values. Do not commit keystores, passwords,
+or OAuth credentials to source control.
 
 ## Runtime design
 
