@@ -9,7 +9,8 @@ from android_audio import subscribe_text, unsubscribe_text
 
 class AndroidActivation(ActivationProvider):
     def __init__(self, wake_words: Optional[List[str]] = None, **kwargs):
-        self.wake_words = [w.lower() for w in (wake_words or ["jarvis", "hey jarvis"])]
+        configured_words = [wake_words] if isinstance(wake_words, str) else (wake_words or ["jarvis", "hey jarvis"])
+        self.wake_words = [str(word).lower() for word in configured_words]
         self.on_wake_word: Optional[Callable[[], None]] = None
         self._router = jclass("com.jarvis.android.host.AndroidSpeechRouter")
         self._running = False
