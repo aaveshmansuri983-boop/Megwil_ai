@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -24,6 +25,12 @@ class AndroidBootstrapTests(unittest.TestCase):
                 Path(os.environ["JARVIS_GUI_SOCKET"]), root / "data" / "jarvis.sock"
             )
             self.assertTrue((root / "models").is_dir())
+
+    def test_missing_parent_package_is_reported_not_raised(self):
+        with mock.patch.object(
+            bootstrap.importlib.util, "find_spec", side_effect=ModuleNotFoundError("jarvis")
+        ):
+            self.assertFalse(bootstrap._module_available("jarvis.voice.stt.android_stt"))
 
     def test_preflight_fails_closed_without_all_runtime_components(self):
         with tempfile.TemporaryDirectory() as tmp:
