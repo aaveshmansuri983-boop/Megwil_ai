@@ -71,7 +71,7 @@ jobs:
           for lib in dist/lib/*.so; do
             readelf -h "$lib" | grep -E 'Class:|Machine:' >/dev/null
           done
-          sha256sum dist/bin/llama-server dist/lib/*.so > dist/SHA256SUMS.txt
+          (cd dist && sha256sum bin/llama-server lib/*.so > SHA256SUMS.txt)
       - name: Package local LLM runtime
         run: tar -C dist -czf JARVIS-Android-ARM64-LLM.tar.gz bin lib SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
