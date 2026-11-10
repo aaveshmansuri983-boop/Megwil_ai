@@ -50,14 +50,30 @@ jobs:
           "$CMAKE" --build "$RUNNER_TEMP/llama-build" --target llama-server -j2
           SERVER="$(find "$RUNNER_TEMP/llama-build" -type f -name llama-server -perm -111 | head -n 1)"
           test -n "$SERVER"
-          mkdir -p dist/bin
+          mkdir -p dist/bin dist/lib
           cp "$SERVER" dist/bin/llama-server
           chmod 0755 dist/bin/llama-server
-          file dist/bin/llama-server
+
+          # llama-server is a small launcher; the actual implementation is in
+          # these shared libraries. Package every required library beside it.
+          required=(libllama-server-impl.so libllama-common.so libmtmd.so libllama.so libggml.so libggml-cpu.so libggml-base.so)
+          for name in "${required[@]}"; do
+            found="$(find "$RUNNER_TEMP/llama-build" -type f -name "$name" | head -n 1)"
+            if [ -z "$found" ]; then
+              echo "::error::Required llama.cpp runtime library missing: $name"
+              exit 1
+            fi
+            cp "$found" "dist/lib/$name"
+          done
+
+          file dist/bin/llama-server dist/lib/*.so
           readelf -h dist/bin/llama-server | grep -E 'Class:|Machine:'
-          sha256sum dist/bin/llama-server > dist/SHA256SUMS.txt
+          for lib in dist/lib/*.so; do
+            readelf -h "$lib" | grep -E 'Class:|Machine:' >/dev/null
+          done
+          sha256sum dist/bin/llama-server dist/lib/*.so > dist/SHA256SUMS.txt
       - name: Package local LLM runtime
-        run: tar -C dist -czf JARVIS-Android-ARM64-LLM.tar.gz bin SHA256SUMS.txt
+        run: tar -C dist -czf JARVIS-Android-ARM64-LLM.tar.gz bin lib SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Android-ARM64-LLM
