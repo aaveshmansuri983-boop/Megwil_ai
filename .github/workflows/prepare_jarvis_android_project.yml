@@ -109,9 +109,9 @@ jobs:
           import re
           from pathlib import Path
           text = Path("app/build.gradle.kts").read_text()
-          match = re.search(r'applicationId\\s*=\\s*"([^"]+)"', text)
+          match = re.search(r'applicationId\s*=\s*"([^"]+)"', text)
           if not match:
-              match = re.search(r'applicationId\\s+"([^"]+)"', text)
+              match = re.search(r'applicationId\s+"([^"]+)"', text)
           if not match:
               raise SystemExit("Android applicationId not found")
           print(match.group(1))
