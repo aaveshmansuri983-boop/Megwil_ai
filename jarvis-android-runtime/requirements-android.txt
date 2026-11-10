@@ -2,10 +2,15 @@
 # MCP 1.13.1 client source is vendored into the Android-only Python tree by
 # prepare_mcp_android.py. Server/CLI extras and jsonschema/rpds are excluded
 # because rpds-py has no Chaquopy ARM64 wheel.
+#
+# Chaquopy 17.2 / Python 3.14 needs an Android ARM64 pydantic-core wheel.
+# This pinned upstream-compatible wheel is published for Android API 24+.
+--extra-index-url https://eutalix.github.io/android-pydantic-core/
 ollama>=0.5.3
 python-dotenv>=1.1.1
 httpx>=0.28.1
 pathspec>=0.12.1
 anyio>=4.5
-pydantic>=2.11.0,<3.0.0
+pydantic==2.14.0
+pydantic-core==2.50.0
 typing-extensions>=4.12
