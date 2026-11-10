@@ -53,7 +53,6 @@ def inspect_runtime() -> dict[str, object]:
            "model_present": any((root / "models").glob("*.gguf"))}
     android_python = callable(getattr(sys, "getandroidapilevel", None))
     voice_bridge = os.environ.get("JARVIS_ANDROID_VOICE_BRIDGE_READY") == "1"
-    sidecar_config = (root / "config" / "sidecars.json").is_file()
     return {
         "platform": sys.platform,
         "android_api": getattr(sys, "getandroidapilevel", lambda: None)(),
@@ -62,10 +61,9 @@ def inspect_runtime() -> dict[str, object]:
         "android_python_runtime": android_python,
         "modules": modules,
         "sidecars": bins,
-        "sidecar_launch_config_present": sidecar_config,
         "llm": llm,
         "native_voice_bridge_ready": voice_bridge,
-        "ready": android_python and all(modules.values()) and all(bins.values()) and sidecar_config and llm["server"] and all(llm["libraries"].values()) and voice_bridge,
+        "ready": android_python and all(modules.values()) and all(bins.values()) and llm["server"] and all(llm["libraries"].values()) and voice_bridge,
         "voice_note": "Host must instantiate AudioHostBridge, request RECORD_AUDIO permission, connect PCM to JARVIS input transport, and set JARVIS_ANDROID_VOICE_BRIDGE_READY=1 only after successful initialization.",
     }
 
@@ -77,8 +75,8 @@ def main() -> int:
     if not report["ready"]:
         print("JARVIS Android backend is NOT ready; refusing to start a partial daemon.")
         return 2
-    from sidecar_launcher import start_sidecars
-    start_sidecars(Path(report["data_dir"]))
+    from sidecar_launcher import prepare_sidecars
+    prepare_sidecars(Path(report["data_dir"]))
     from llm.bootstrap import start_local_llm
     start_local_llm()
     from jarvis.main import main as jarvis_main
