@@ -1,6 +1,10 @@
 name: Package JARVIS Android runtime assets (no APK)
 
 on:
+  push:
+    branches: ["jarvis-android-fix"]
+    paths:
+      - ".github/workflows/package_jarvis_android_runtime_assets.yml"
   workflow_run:
     workflows: ["Build JARVIS Android local LLM runtime"]
     types: [completed]
