@@ -45,6 +45,7 @@ jobs:
           echo "ASSET_RUN=$ASSET_RUN" >> "$GITHUB_ENV"
           echo "BACKEND_RUN=$BACKEND_RUN" >> "$GITHUB_ENV"
       - name: Verify and extract JARVIS V3 source archive
+        id: source
         shell: bash
         run: |
           set -euo pipefail
@@ -56,6 +57,7 @@ jobs:
           test -f "$PROJECT/src-tauri/tauri.conf.json"
           test -f "$PROJECT/src/index.html"
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
       - name: Apply isolated desktop-safe Android source patch
         run: python jarvis-android-runtime/patch_tauri_android.py "$PROJECT"
       - name: Set up Java 17
@@ -88,7 +90,7 @@ jobs:
           rustup target add aarch64-linux-android
           cargo install tauri-cli --version "^2" --locked --jobs 2
       - name: Initialize generated Android project
-        working-directory: ${{ env.PROJECT }}
+        working-directory: ${{ steps.source.outputs.project }}
         env:
           CI: "true"
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
@@ -103,10 +105,10 @@ jobs:
             --backend-source "$RUNNER_TEMP/backend/python" \
             --runtime-assets "$RUNNER_TEMP/runtime-assets"
       - name: Verify Python package compatibility (no APK)
-        working-directory: ${{ env.PROJECT }}/src-tauri/gen/android
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         run: ./gradlew :app:generateDebugPythonRequirements --no-daemon
       - name: Compile native Android voice bridge (no APK)
-        working-directory: ${{ env.PROJECT }}/src-tauri/gen/android
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         run: ./gradlew :app:compileDebugKotlin --no-daemon
       - name: Check Android Rust host integration (no APK)
         working-directory: ${{ env.PROJECT }}/src-tauri
