@@ -367,3 +367,5 @@ jobs:
             echo "- Checks attempted: Chaquopy Python dependencies, Kotlin native voice bridge, Rust Android host."
             echo "- MEGWIL and desktop JARVIS source were not modified."
           } >> "$GITHUB_STEP_SUMMARY"
+
+# Re-run Android validation after bundle identifier regex correction.
