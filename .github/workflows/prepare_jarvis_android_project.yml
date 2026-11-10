@@ -226,10 +226,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Verify Python package compatibility (no APK)
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
-        run: ./gradlew :app:generateArmDebugPythonRequirementsAssets --no-daemon
+        run: |
+          ./gradlew :app:generateArm64DebugPythonRequirementsAssets :app:generateUniversalDebugPythonRequirementsAssets --no-daemon
       - name: Compile native Android voice bridge (no APK)
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
-        run: ./gradlew :app:compileDebugKotlin --no-daemon
+        run: |
+          ./gradlew :app:compileArm64DebugKotlin :app:compileUniversalDebugKotlin --no-daemon
       - name: Record preparation-only result
         if: always()
         run: |
