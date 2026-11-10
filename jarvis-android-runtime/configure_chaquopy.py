@@ -122,7 +122,7 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
                 break
         else:
             lines.append(f"{key}={value}")
-        return "\\n".join(lines) + "\\n"
+        return "\n".join(lines) + "\n"
 
     properties_text = set_gradle_property(properties_text, "abiList", "arm64-v8a")
     properties_text = set_gradle_property(properties_text, "archList", "arm64")
