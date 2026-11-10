@@ -20,7 +20,7 @@ def insert_plugin(path: Path, line: str, after: str | None = None) -> None:
     if marker not in text:
         if after:
             raise SystemExit(f"Cannot safely locate plugins block in {path}")
-        text = marker + "\\n    " + line + "\\n}\\n\\n" + text
+        text = marker + "\n    " + line + "\n}\n\n" + text
         path.write_text(text)
         return
     if after:
@@ -65,13 +65,13 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
                 pm_end = st.find("}", pm_start)
                 if pm_end < 0:
                     raise SystemExit("Malformed pluginManagement block in settings.gradle.kts")
-                st = st[:pm_end] + "\\n    repositories { google(); mavenCentral(); gradlePluginPortal() }" + st[pm_end:]
+                st = st[:pm_end] + "\n    repositories { google(); mavenCentral(); gradlePluginPortal() }" + st[pm_end:]
             else:
                 repo_end = st.find("}", repo_start)
                 repo_block = st[repo_start:repo_end]
                 for repository in ("google()", "mavenCentral()", "gradlePluginPortal()"):
                     if repository not in repo_block:
-                        st = st[:repo_end] + "\\n        " + repository + st[repo_end:]
+                        st = st[:repo_end] + "\n        " + repository + st[repo_end:]
                         repo_end = st.find("}", repo_start)
         settings.write_text(st)
 
