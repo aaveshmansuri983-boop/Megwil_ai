@@ -76,13 +76,17 @@ def start_local_llm() -> subprocess.Popen:
     log_dir = Path(os.environ["JARVIS_ANDROID_DATA_DIR"]) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log = (log_dir / "llama-server.log").open("ab")
+    # The executable depends on llama.cpp shared objects shipped in ../lib.
+    env = os.environ.copy()
+    lib_dir = str(SERVER_PATH.parent.parent / "lib")
+    env["LD_LIBRARY_PATH"] = lib_dir + (":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
     process = subprocess.Popen(
         [
             str(SERVER_PATH), "-m", str(model), "--host", HOST, "--port", str(PORT),
             "-c", "2048", "-ngl", "99", "--threads", str(max(2, (os.cpu_count() or 4) - 1)),
         ],
         cwd=str(log_dir), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-        start_new_session=True,
+        start_new_session=True, env=env,
     )
     import httpx
     deadline = time.monotonic() + 90
