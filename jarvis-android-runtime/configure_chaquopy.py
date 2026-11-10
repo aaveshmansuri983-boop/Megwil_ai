@@ -122,7 +122,7 @@ chaquopy {
         pos_tts = tts_text.find(anchor_tts)
         if pos_tts < 0:
             raise SystemExit("Cannot safely patch Project-JARVIS TTS provider factory")
-        tts_text = tts_text[:pos_tts] + '    if provider == "android":\\n        from .android_tts import AndroidTTS\\n        return AndroidTTS(**kwargs)\\n' + tts_text[pos_tts:]
+        tts_text = tts_text[:pos_tts] + '    if provider == "android":\n        from .android_tts import AndroidTTS\n        return AndroidTTS(**kwargs)\n' + tts_text[pos_tts:]
         tts_init.write_text(tts_text)
 
     # Make the typed plugin client available to the frontend source tree.
@@ -137,11 +137,11 @@ chaquopy {
     shutil.copy2(runtime / "android_stt.py", stt_init.parent / "android_stt.py")
     stt_text = stt_init.read_text()
     if 'provider == "android"' not in stt_text:
-        stt_anchor = '    raise ValueError(\\n        f"Unknown STT provider:'
+        stt_anchor = '    raise ValueError(\n        f"Unknown STT provider:'
         stt_pos = stt_text.find(stt_anchor)
         if stt_pos < 0:
             raise SystemExit("Cannot safely patch Project-JARVIS STT provider factory")
-        stt_text = stt_text[:stt_pos] + '    if provider == "android":\\n        from .android_stt import AndroidSTT\\n        return AndroidSTT(**kwargs)\\n' + stt_text[stt_pos:]
+        stt_text = stt_text[:stt_pos] + '    if provider == "android":\n        from .android_stt import AndroidSTT\n        return AndroidSTT(**kwargs)\n' + stt_text[stt_pos:]
         stt_init.write_text(stt_text)
 
     # Register the Kotlin plugin in the Android-only Rust build copy.
@@ -181,7 +181,7 @@ chaquopy {
         raise SystemExit("AndroidManifest.xml has no manifest root element")
     for permission in permissions:
         if permission not in manifest_text:
-            manifest_text = manifest_text[:manifest_end + 1] + "\\n    " + permission + manifest_text[manifest_end + 1:]
+            manifest_text = manifest_text[:manifest_end + 1] + "\n    " + permission + manifest_text[manifest_end + 1:]
             manifest_end = manifest_text.find(">", manifest_start)
     application_start = manifest_text.find("<application")
     application_end = manifest_text.find(">", application_start)
