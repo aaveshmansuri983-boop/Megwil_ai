@@ -1,4 +1,4 @@
-name: Test JARVIS Android Runtime Overlay
+name: Test JARVIS Android Runtime Preparation (No APK)
 
 on:
   push:
@@ -14,9 +14,26 @@ permissions:
 jobs:
   android-runtime-preflight:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Compile Android runtime overlay
-        run: python3 -m compileall -q jarvis-android-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Android runtime overlay and helpers
+        run: python -m compileall -q jarvis-android-runtime
       - name: Test private storage and fail-closed readiness report
-        run: python3 -m unittest discover -s jarvis-android-runtime/tests -v
+        run: python -m unittest discover -s jarvis-android-runtime/tests -v
+      - name: Validate OAuth checker fails closed without credentials
+        run: |
+          python jarvis-android-runtime/oauth_check.py > oauth-preflight.json
+          python - <<'PY'
+          import json
+          data = json.load(open("oauth-preflight.json"))
+          assert data["ready"] is False
+          assert data["client_secret_required_in_apk"] is False
+          PY
+      - name: Confirm Android Python dependency inventory
+        run: test -s jarvis-android-runtime/requirements-android.txt
+      - name: No APK build
+        run: echo "Preparation tests only. No Gradle/Tauri APK build, signing, or release is run."
