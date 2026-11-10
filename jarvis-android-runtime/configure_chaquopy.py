@@ -144,6 +144,20 @@ chaquopy {
         stt_text = stt_text[:stt_pos] + '    if provider == "android":\n        from .android_stt import AndroidSTT\n        return AndroidSTT(**kwargs)\n' + stt_text[stt_pos:]
         stt_init.write_text(stt_text)
 
+    # Add Android SpeechRecognizer as the wake-word activation provider.
+    activation_init = python_dir / "jarvis" / "voice" / "activation" / "__init__.py"
+    if not activation_init.is_file():
+        raise SystemExit("Project-JARVIS activation provider factory is missing")
+    shutil.copy2(runtime / "android_activation.py", activation_init.parent / "android_activation.py")
+    activation_text = activation_init.read_text()
+    if 'provider == "android"' not in activation_text:
+        activation_anchor = '    raise ValueError(f"Unknown activation provider:'
+        activation_pos = activation_text.find(activation_anchor)
+        if activation_pos < 0:
+            raise SystemExit("Cannot safely patch Project-JARVIS activation provider factory")
+        activation_text = activation_text[:activation_pos] + '    if provider == "android":\\n        from .android_activation import AndroidActivation\\n        return AndroidActivation(**kwargs)\\n' + activation_text[activation_pos:]
+        activation_init.write_text(activation_text)
+
     # Register the Kotlin plugin in the Android-only Rust build copy.
     lib_rs = project / "src-tauri" / "src" / "lib.rs"
     rust = lib_rs.read_text()
