@@ -81,6 +81,7 @@ def main() -> int:
     if callable(getattr(sys, "getandroidapilevel", None)):
         os.environ["TTS_PROVIDER"] = "android"
         os.environ["STT_PROVIDER"] = "android"
+        os.environ["ACTIVATION_PROVIDER"] = "android"
         os.environ["OUTPUT_MODE"] = "voice"
         import android_sounddevice
         sys.modules["sounddevice"] = android_sounddevice
