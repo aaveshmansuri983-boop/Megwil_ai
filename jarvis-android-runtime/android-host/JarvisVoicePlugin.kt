@@ -2,7 +2,10 @@ package com.jarvis.android.host
 
 import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.util.Base64
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
@@ -51,6 +54,52 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
         }
         val result = JSObject()
         result.put("ready", true)
+        invoke.resolve(result)
+    }
+
+    @Command
+    fun startBackend(invoke: Invoke) {
+        val result = JSObject()
+        try {
+            if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                result.put("started", false)
+                result.put("reason", "RECORD_AUDIO permission must be granted before backend startup")
+                invoke.resolve(result)
+                return
+            }
+            val audio = bridge
+            if (audio == null || !audio.isSpeechReady()) {
+                result.put("started", false)
+                result.put("reason", "Initialize the native TextToSpeech bridge and wait until it is ready")
+                invoke.resolve(result)
+                return
+            }
+            val runtimeRoot = RuntimeAssetInstaller.install(activity)
+            if (!Python.isStarted()) Python.start(AndroidPlatform(activity))
+            val python = Python.getInstance()
+            val environ = python.getModule("os").get("environ")
+            environ.callAttr("__setitem__", "JARVIS_ANDROID_DATA_DIR", runtimeRoot.absolutePath)
+            environ.callAttr("__setitem__", "JARVIS_ANDROID_VOICE_BRIDGE_READY", "1")
+            Thread({
+                try {
+                    val code = python.getModule("bootstrap").callAttr("main").toInt()
+                    val event = JSObject()
+                    event.put("state", if (code == 0) "stopped" else "not-ready")
+                    event.put("exitCode", code)
+                    trigger("backendState", event)
+                } catch (error: Throwable) {
+                    val event = JSObject()
+                    event.put("state", "error")
+                    event.put("message", error.message ?: error.javaClass.simpleName)
+                    trigger("backendState", event)
+                }
+            }, "Jarvis-Python-Backend").apply { isDaemon = true; start() }
+            result.put("started", true)
+            result.put("runtimePath", runtimeRoot.absolutePath)
+        } catch (error: Throwable) {
+            result.put("started", false)
+            result.put("reason", error.message ?: error.javaClass.simpleName)
+        }
         invoke.resolve(result)
     }
 
