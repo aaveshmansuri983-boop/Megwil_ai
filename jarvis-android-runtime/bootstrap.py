@@ -42,7 +42,7 @@ def configure_private_storage() -> Path:
 
 def inspect_runtime() -> dict[str, object]:
     root = configure_private_storage()
-    required_modules = ("ollama", "dotenv", "mcp", "httpx", "pathspec")
+    required_modules = ("ollama", "dotenv", "mcp", "httpx", "pathspec", "android_audio", "android_sounddevice", "jarvis.voice.stt.android_stt", "jarvis.voice.activation.android_activation", "jarvis.voice.tts.android_tts")
     required_bins = ("dispatch", "dmcp", "contextor")
     required_llm_libs = ("libllama-server-impl.so", "libllama-common.so", "libmtmd.so", "libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so")
     modules = {name: importlib.util.find_spec(name) is not None for name in required_modules}
@@ -63,7 +63,7 @@ def inspect_runtime() -> dict[str, object]:
         "llm": llm,
         "native_voice_bridge_ready": voice_bridge,
         "ready": android_python and all(modules.values()) and all(bins.values()) and llm["server"] and all(llm["libraries"].values()) and voice_bridge,
-        "voice_note": "Host must instantiate AudioHostBridge, request RECORD_AUDIO permission, connect PCM to JARVIS input transport, and set JARVIS_ANDROID_VOICE_BRIDGE_READY=1 only after successful initialization.",
+        "voice_note": "Host must initialize native TextToSpeech and SpeechRecognizer, obtain RECORD_AUDIO permission, and set JARVIS_ANDROID_VOICE_BRIDGE_READY=1 only after successful initialization. AudioRecord PCM is exposed through android_audio.",
     }
 
 
