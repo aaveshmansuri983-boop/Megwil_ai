@@ -249,12 +249,17 @@ jobs:
             echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
             exit 1
           fi
-      - name: Collect OAuth package and provisional debug signing details
+      - name: Collect OAuth package and stable signing prerequisites
+        id: oauth
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         env:
           JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID || secrets.GOOGLE_WEB_CLIENT_ID }}
           JARVIS_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_ANDROID_CLIENT_ID }}
           JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
+          JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD }}
+          JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -262,9 +267,9 @@ jobs:
           import re
           from pathlib import Path
           text = Path("app/build.gradle.kts").read_text()
-          match = re.search(r'applicationId\s*=\s*"([^"]+)"', text)
+          match = re.search(r'applicationId\\s*=\\s*"([^"]+)"', text)
           if not match:
-              match = re.search(r'applicationId\s+"([^"]+)"', text)
+              match = re.search(r'applicationId\\s+"([^"]+)"', text)
           if not match:
               raise SystemExit("Android applicationId not found")
           print(match.group(1))
@@ -273,23 +278,63 @@ jobs:
           ./gradlew signingReport --no-daemon > "$RUNNER_TEMP/signing-report.txt"
           DEBUG_SHA1="$(awk '/Variant: debug/{debug=1} debug && /SHA1:/{print $2; exit}' "$RUNNER_TEMP/signing-report.txt" | tr -d ':')"
           export JARVIS_ANDROID_APPLICATION_ID="$APP_ID"
-          # Keep the user-provided stable SHA-1 separate from the temporary CI debug certificate.
           python "$GITHUB_WORKSPACE/jarvis-android-runtime/oauth_check.py" > "$RUNNER_TEMP/oauth-preflight.json"
+
+          KEYSTORE_READY=false
+          KEYSTORE_PATH="$RUNNER_TEMP/jarvis-release.keystore"
+          if [[ -n "$JARVIS_ANDROID_KEYSTORE_BASE64" && -n "$JARVIS_ANDROID_KEYSTORE_PASSWORD" &&
+                -n "$JARVIS_ANDROID_KEY_ALIAS" && -n "$JARVIS_ANDROID_KEY_PASSWORD" &&
+                -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ]]; then
+            if printf '%s' "$JARVIS_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH" &&
+               keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$JARVIS_ANDROID_KEYSTORE_PASSWORD" \
+                 -alias "$JARVIS_ANDROID_KEY_ALIAS" > "$RUNNER_TEMP/release-keystore-info.txt" 2>/dev/null; then
+              ACTUAL_SHA1="$(awk '/SHA1:/{gsub(":", "", $2); print toupper($2); exit}' "$RUNNER_TEMP/release-keystore-info.txt")"
+              EXPECTED_SHA1="$(printf '%s' "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+              if [[ -n "$ACTUAL_SHA1" && "$ACTUAL_SHA1" == "$EXPECTED_SHA1" ]]; then
+                KEYSTORE_READY=true
+                chmod 600 "$KEYSTORE_PATH"
+                echo "JARVIS_SIGNING_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+              fi
+            fi
+          fi
+
+          OAUTH_READY="$(python -c 'import json,sys; print("true" if json.load(open(sys.argv[1])).get("ready") else "false")' "$RUNNER_TEMP/oauth-preflight.json")"
+          ALL_READY=false
+          if [[ "$OAUTH_READY" == "true" && "$KEYSTORE_READY" == "true" ]]; then ALL_READY=true; fi
+          echo "ready=$ALL_READY" >> "$GITHUB_OUTPUT"
+          echo "keystore_ready=$KEYSTORE_READY" >> "$GITHUB_OUTPUT"
+
+          WEB_READY="$([ -n "$JARVIS_GOOGLE_WEB_CLIENT_ID" ] && echo yes || echo no)"
+          ANDROID_READY="$([ -n "$JARVIS_GOOGLE_ANDROID_CLIENT_ID" ] && echo yes || echo no)"
+          SHA_READY="$([ -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ] && echo yes || echo no)"
+          KEYSTORE_SECRET_READY="$([ -n "$JARVIS_ANDROID_KEYSTORE_BASE64" ] && echo yes || echo no)"
+          PASSWORDS_READY="$([ -n "$JARVIS_ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$JARVIS_ANDROID_KEY_PASSWORD" ] && echo yes || echo no)"
+          ALIAS_READY="$([ -n "$JARVIS_ANDROID_KEY_ALIAS" ] && echo yes || echo no)"
           echo "Android application ID: $APP_ID"
           echo "Temporary CI debug SHA-1 present: $([ -n "$DEBUG_SHA1" ] && echo yes || echo no)"
-          echo "Web OAuth client ID configured: $([ -n "$JARVIS_GOOGLE_WEB_CLIENT_ID" ] && echo yes || echo no)"
-          echo "Android OAuth client ID configured: $([ -n "$JARVIS_GOOGLE_ANDROID_CLIENT_ID" ] && echo yes || echo no)"
-          echo "Stable signing SHA-1 configured: $([ -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ] && echo yes || echo no)"
-          cat "$RUNNER_TEMP/oauth-preflight.json"
+          echo "Web OAuth client ID configured: $WEB_READY"
+          echo "Android OAuth client ID configured: $ANDROID_READY"
+          echo "Stable signing SHA-1 configured: $SHA_READY"
+          echo "Release keystore configured: $KEYSTORE_SECRET_READY"
+          echo "Release keystore passwords configured: $PASSWORDS_READY"
+          echo "Release keystore alias configured: $ALIAS_READY"
+          echo "Release keystore matches stable SHA-1: $KEYSTORE_READY"
           {
-            echo "### OAuth preflight (IDs are never printed)"
+            echo "### OAuth and signing preflight (secret values are never printed)"
             echo "- Android application ID: $APP_ID"
-            echo "- Temporary CI debug SHA-1 present: $([ -n "$DEBUG_SHA1" ] && echo yes || echo no)"
-            echo "- Web OAuth client ID configured: $([ -n "$JARVIS_GOOGLE_WEB_CLIENT_ID" ] && echo yes || echo no)"
-            echo "- Android OAuth client ID configured: $([ -n "$JARVIS_GOOGLE_ANDROID_CLIENT_ID" ] && echo yes || echo no)"
-            echo "- Stable signing SHA-1 configured: $([ -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ] && echo yes || echo no)"
+            echo "- Web OAuth client ID configured: $WEB_READY"
+            echo "- Android OAuth client ID configured: $ANDROID_READY"
+            echo "- Stable signing SHA-1 configured: $SHA_READY"
+            echo "- Release keystore configured: $KEYSTORE_SECRET_READY"
+            echo "- Release keystore passwords configured: $PASSWORDS_READY"
+            echo "- Release keystore alias configured: $ALIAS_READY"
+            echo "- Release keystore certificate matches configured SHA-1: $KEYSTORE_READY"
+            echo "- Final APK prerequisites ready: **$ALL_READY**"
+            if [[ "$ALL_READY" != "true" ]]; then
+              echo "- APK build is held. Configure the missing user-owned GitHub Actions secrets: JARVIS_GOOGLE_ANDROID_CLIENT_ID, JARVIS_ANDROID_STABLE_SIGNING_SHA1, JARVIS_ANDROID_KEYSTORE_BASE64, JARVIS_ANDROID_KEYSTORE_PASSWORD, JARVIS_ANDROID_KEY_ALIAS, JARVIS_ANDROID_KEY_PASSWORD. Also ensure JARVIS_GOOGLE_WEB_CLIENT_ID (or GOOGLE_WEB_CLIENT_ID) is configured."
+              echo "- Register the exact Android application ID above and the matching stable signing SHA-1 in the user's Google Cloud Android OAuth client."
+            fi
             cat "$RUNNER_TEMP/oauth-preflight.json"
-            echo "- A stable signing certificate is still required before final Android OAuth registration."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Verify Python package compatibility (no APK)
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
@@ -299,7 +344,14 @@ jobs:
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         run: |
           ./gradlew :app:compileArm64DebugKotlin :app:compileUniversalDebugKotlin --no-daemon
+      - name: Hold APK build until OAuth and stable signing are configured
+        if: steps.oauth.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "APK build held: required Google OAuth and stable release-signing prerequisites are not all configured."
+          echo "No APK will be compiled, signed, or uploaded in this run."
       - name: Build JARVIS V3 Android ARM64 APK
+        if: steps.oauth.outputs.ready == 'true'
         working-directory: ${{ steps.source.outputs.project }}
         timeout-minutes: 60
         env:
@@ -310,7 +362,14 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo tauri android build --apk --target aarch64 --ci
       - name: Sign and verify installable APK
+        if: steps.oauth.outputs.ready == 'true'
         working-directory: ${{ steps.source.outputs.project }}
+        env:
+          JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD }}
+          JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD }}
+          JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
         shell: bash
         run: |
           set -euo pipefail
@@ -318,18 +377,19 @@ jobs:
           test -n "$APK"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           test -x "$BUILD_TOOLS/apksigner"
-          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/jarvis-debug.keystore" \
-            -storepass android -alias androiddebugkey -keypass android \
-            -dname "CN=JARVIS Android Debug,O=JARVIS,C=IN" \
-            -keyalg RSA -keysize 2048 -validity 10000
-          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/jarvis-debug.keystore" \
-            --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android "$APK"
+          printf '%s' "$JARVIS_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-release.keystore"
+          chmod 600 "$RUNNER_TEMP/jarvis-release.keystore"
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/jarvis-release.keystore" \
+            --ks-key-alias "$JARVIS_ANDROID_KEY_ALIAS" --ks-pass env:JARVIS_ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:JARVIS_ANDROID_KEY_PASSWORD "$APK"
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
           keytool -printcert -jarfile "$APK" > "$RUNNER_TEMP/jarvis-apk-certificate.txt"
-          SHA1="$(awk '/SHA1:/{print $2; exit}' "$RUNNER_TEMP/jarvis-apk-certificate.txt")"
-          test -n "$SHA1"
-          echo "APK_SIGNING_SHA1=$SHA1" >> "$GITHUB_ENV"
+          ACTUAL_SHA1="$(awk '/SHA1:/{gsub(":", "", $2); print toupper($2); exit}' "$RUNNER_TEMP/jarvis-apk-certificate.txt")"
+          EXPECTED_SHA1="$(printf '%s' "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test -n "$ACTUAL_SHA1" && test "$ACTUAL_SHA1" = "$EXPECTED_SHA1"
+          echo "APK_SIGNING_SHA1=$ACTUAL_SHA1" >> "$GITHUB_ENV"
       - name: Package and upload direct APK artifact
+        if: steps.oauth.outputs.ready == 'true'
         working-directory: ${{ steps.source.outputs.project }}
         shell: bash
         run: |
@@ -347,6 +407,7 @@ jobs:
             echo "- Google Android OAuth client: not configured in this workflow; Google Sign-In may require later setup"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload JARVIS V3 Android APK
+        if: steps.oauth.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-V3-Android-APK
