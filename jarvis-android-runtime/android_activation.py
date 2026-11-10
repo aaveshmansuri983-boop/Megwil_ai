@@ -32,6 +32,8 @@ class AndroidActivation(ActivationProvider):
     def start_listening(self) -> bool:
         if self._running:
             return True
+        if not self._router.isAvailable():
+            return False
         self._running = True
         subscribe_text(self._on_text)
         self._router.listenOnce()
