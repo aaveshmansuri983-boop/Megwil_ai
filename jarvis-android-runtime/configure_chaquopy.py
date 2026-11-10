@@ -204,6 +204,76 @@ chaquopy {
         activation_text = activation_text[:activation_pos] + '    if provider == "android":\n        from .android_activation import AndroidActivation\n        return AndroidActivation(**kwargs)\n' + activation_text[activation_pos:]
         activation_init.write_text(activation_text)
 
+    # Declare Tauri v2 ACL permissions for the custom Android mobile plugin.
+    permissions_dir = project / "src-tauri" / "permissions"
+    permissions_dir.mkdir(parents=True, exist_ok=True)
+    permission_file = permissions_dir / "jarvis-voice.toml"
+    permission_file.write_text("""[[permission]]
+identifier = "allow-initialize"
+description = "Allows initializing the native JARVIS Android voice bridge."
+commands.allow = ["initialize"]
+
+[[permission]]
+identifier = "allow-start-backend"
+description = "Allows starting the embedded JARVIS Python backend."
+commands.allow = ["startBackend"]
+
+[[permission]]
+identifier = "allow-listen-once"
+description = "Allows starting native Android speech recognition."
+commands.allow = ["listenOnce"]
+
+[[permission]]
+identifier = "allow-stop-listening"
+description = "Allows stopping native Android speech recognition."
+commands.allow = ["stopListening"]
+
+[[permission]]
+identifier = "allow-start-recording"
+description = "Allows starting native Android AudioRecord capture."
+commands.allow = ["startRecording"]
+
+[[permission]]
+identifier = "allow-stop-recording"
+description = "Allows stopping native Android AudioRecord capture."
+commands.allow = ["stopRecording"]
+
+[[permission]]
+identifier = "allow-speak"
+description = "Allows native Android TextToSpeech output."
+commands.allow = ["speak"]
+
+[[permission]]
+identifier = "allow-shutdown"
+description = "Allows shutting down the native Android voice bridge."
+commands.allow = ["shutdown"]
+
+[[set]]
+identifier = "default"
+description = "Allows the JARVIS Android voice controls used by the app."
+permissions = [
+    "allow-initialize",
+    "allow-start-backend",
+    "allow-listen-once",
+    "allow-stop-listening",
+    "allow-start-recording",
+    "allow-stop-recording",
+    "allow-speak",
+    "allow-shutdown",
+]
+""")
+    capabilities_dir = project / "src-tauri" / "capabilities"
+    capabilities_dir.mkdir(parents=True, exist_ok=True)
+    voice_capability = {
+        "$schema": "../gen/schemas/mobile-schema.json",
+        "identifier": "jarvis-android-voice",
+        "description": "Allows the main Android window to control native JARVIS voice services.",
+        "windows": ["main"],
+        "platforms": ["android"],
+        "permissions": ["core:default", "jarvis-voice:default"],
+    }
+    (capabilities_dir / "jarvis-android-voice.json").write_text(json.dumps(voice_capability, indent=2) + "\\n")
+
     # Register the Kotlin plugin in the Android-only Rust build copy.
     lib_rs = project / "src-tauri" / "src" / "lib.rs"
     rust = lib_rs.read_text()
