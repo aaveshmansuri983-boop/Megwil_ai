@@ -3,6 +3,13 @@ package com.jarvis.android.host
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.LocalSocket
+import android.net.LocalSocketAddress
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import app.tauri.annotation.Command
@@ -31,6 +38,7 @@ internal class SpeakArgs {
 )
 class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     private var bridge: AudioHostBridge? = null
+    private var recognizer: SpeechRecognizer? = null
 
     @Command
     fun initialize(invoke: Invoke) {
@@ -110,6 +118,97 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun listenOnce(invoke: Invoke) {
+        val result = JSObject()
+        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            result.put("started", false)
+            result.put("reason", "RECORD_AUDIO permission is not granted")
+            invoke.resolve(result)
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
+            result.put("started", false)
+            result.put("reason", "Android speech recognition service is unavailable")
+            invoke.resolve(result)
+            return
+        }
+        try {
+            recognizer?.destroy()
+            recognizer = SpeechRecognizer.createSpeechRecognizer(activity).apply {
+                setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) { trigger("speechState", JSObject().apply { put("state", "listening") }) }
+                    override fun onBeginningOfSpeech() { }
+                    override fun onRmsChanged(rmsdB: Float) { }
+                    override fun onBufferReceived(buffer: ByteArray?) { }
+                    override fun onEndOfSpeech() { trigger("speechState", JSObject().apply { put("state", "processing") }) }
+                    override fun onError(error: Int) {
+                        trigger("speechError", JSObject().apply { put("code", error) })
+                        recognizer?.destroy()
+                        recognizer = null
+                    }
+                    override fun onResults(bundle: Bundle?) {
+                        val text = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                        if (text.isNotBlank()) sendTextToJarvis(text)
+                        trigger("speechResult", JSObject().apply { put("text", text) })
+                        recognizer?.destroy()
+                        recognizer = null
+                    }
+                    override fun onPartialResults(bundle: Bundle?) {
+                        val text = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                        if (text.isNotBlank()) trigger("speechPartial", JSObject().apply { put("text", text) })
+                    }
+                    override fun onEvent(eventType: Int, params: Bundle?) { }
+                })
+            }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            }
+            recognizer?.startListening(intent)
+            result.put("started", true)
+        } catch (error: Throwable) {
+            result.put("started", false)
+            result.put("reason", error.message ?: error.javaClass.simpleName)
+        }
+        invoke.resolve(result)
+    }
+
+    @Command
+    fun stopListening(invoke: Invoke) {
+        recognizer?.stopListening()
+        recognizer?.destroy()
+        recognizer = null
+        invoke.resolve(JSObject().apply { put("stopped", true) })
+    }
+
+    private fun sendTextToJarvis(text: String) {
+        Thread({
+            val socketPath = java.io.File(activity.filesDir, "jarvis-runtime/data/input.sock").absolutePath
+            var delivered = false
+            repeat(10) {
+                if (delivered) return@repeat
+                try {
+                    LocalSocket().use { socket ->
+                        socket.connect(LocalSocketAddress(socketPath, LocalSocketAddress.Namespace.FILESYSTEM))
+                        socket.outputStream.use { output ->
+                            output.write((text.trim() + "\\n").toByteArray(Charsets.UTF_8))
+                            output.flush()
+                        }
+                    }
+                    delivered = true
+                } catch (_: Exception) {
+                    try { Thread.sleep(250) } catch (_: InterruptedException) { return@Thread }
+                }
+            }
+            trigger("speechDelivery", JSObject().apply {
+                put("delivered", delivered)
+                if (!delivered) put("reason", "JARVIS input socket is not ready")
+            })
+        }, "Jarvis-Speech-Input").apply { isDaemon = true; start() }
+    }
+
+    @Command
     fun startRecording(invoke: Invoke) {
         val started = bridge?.startRecording() == true
         val result = JSObject()
@@ -138,6 +237,8 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun shutdown(invoke: Invoke) {
+        recognizer?.destroy()
+        recognizer = null
         bridge?.shutdown()
         bridge = null
         AndroidTtsRouter.clear()
