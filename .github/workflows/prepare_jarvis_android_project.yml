@@ -6,6 +6,8 @@ on:
     branches: ["jarvis-android-fix"]
     paths:
       - ".github/workflows/prepare_jarvis_android_project.yml"
+      - "jarvis-app-android-v3.zip"
+      - "jarvis-android-runtime/**"
   workflow_run:
     workflows: ["Package JARVIS Android runtime assets (no APK)"]
     types: [completed]
