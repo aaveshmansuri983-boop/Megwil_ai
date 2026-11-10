@@ -192,7 +192,7 @@ jobs:
                   part = "_" + part
               parts.append(part)
           package = ".".join(parts)
-          if len(parts) < 2 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+", package):
+          if len(parts) < 2 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+", package):
               raise SystemExit(f"Invalid sanitized Kotlin package: {package}")
           print(package)
           PY
