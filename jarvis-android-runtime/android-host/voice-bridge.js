@@ -31,7 +31,7 @@
     button.disabled = true;
     status.textContent = "Requesting microphone permission…";
     try {
-      await api("plugin:jarvis-voice|requestPermissions");
+      await api("plugin:jarvis-voice|requestPermissions", { permissions: ["recordAudio"] });
       await api("plugin:jarvis-voice|initialize");
       await new Promise(resolve => setTimeout(resolve, 1200));
       status.textContent = "Starting Python, local LLM and voice services…";
