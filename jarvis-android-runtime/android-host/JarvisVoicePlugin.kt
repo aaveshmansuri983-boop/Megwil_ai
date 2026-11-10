@@ -35,6 +35,7 @@ internal class SpeakArgs {
 class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     private var bridge: AudioHostBridge? = null
     private var recognizer: SpeechRecognizer? = null
+    @Volatile private var backendStarted = false
 
     @Command
     fun initialize(invoke: Invoke) {
@@ -70,6 +71,12 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun startBackend(invoke: Invoke) {
         val result = JSObject()
+        if (backendStarted) {
+            result.put("started", true)
+            result.put("alreadyRunning", true)
+            invoke.resolve(result)
+            return
+        }
         try {
             if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 result.put("started", false)
@@ -96,14 +103,17 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             val environ = python.getModule("os").get("environ")
             environ.callAttr("__setitem__", "JARVIS_ANDROID_DATA_DIR", runtimeRoot.absolutePath)
             environ.callAttr("__setitem__", "JARVIS_ANDROID_VOICE_BRIDGE_READY", "1")
+            backendStarted = true
             Thread({
                 try {
                     val code = python.getModule("bootstrap").callAttr("main").toInt()
+                    backendStarted = false
                     trigger("backendState", JSObject().apply {
                         put("state", if (code == 0) "stopped" else "not-ready")
                         put("exitCode", code)
                     })
                 } catch (error: Throwable) {
+                    backendStarted = false
                     trigger("backendState", JSObject().apply {
                         put("state", "error")
                         put("message", error.message ?: error.javaClass.simpleName)
@@ -113,6 +123,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             result.put("started", true)
             result.put("runtimePath", runtimeRoot.absolutePath)
         } catch (error: Throwable) {
+            backendStarted = false
             result.put("started", false)
             result.put("reason", error.message ?: error.javaClass.simpleName)
         }
