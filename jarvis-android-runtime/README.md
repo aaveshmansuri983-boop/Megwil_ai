@@ -69,25 +69,34 @@ or OAuth credentials to source control.
   PCM into a Python sounddevice compatibility shim for a future on-device Vosk
   engine; the Vosk engine/model are not yet bundled.
 
-## Remaining verification / user inputs
+## Remaining device verification / user inputs
 
-- The generated Android project still needs the no-APK Gradle/Rust preflight
-  to finish successfully. Source files existing is not proof of a compiled
-  or working Android integration.
-- The Vosk native STT engine/model are not yet bundled for Chaquopy. The
-  SpeechRecognizer fallback depends on the speech service and offline language
-  pack available on the phone.
-- The generated Android frontend receives a floating Start JARVIS control. It
-  requests microphone permission, initializes the native plugin and starts the
-  Python backend. This flow still needs a real-device test.
-- Google OAuth Web and Android Client IDs and the stable signing certificate
-  SHA-1 are not present in the current repository Actions secrets. The generated
-  applicationId must be paired with that stable SHA-1 in the user's Google Cloud
-  Android OAuth client. Never put a client secret in the APK.
-- The Android build vendors the pinned MCP 1.13.1 stdio client only. Server
-  and CLI extras are excluded, and a small Android JSON Schema validator
-  replaces the desktop jsonschema/rpds dependency which has no Chaquopy ARM64
-  wheel. The complete Chaquopy dependency set must still pass ARM64 resolution.
-
-A successful component workflow is not an integrated app. The final APK
-workflow remains separate and is not started by this preparation pipeline.
+- The latest integrated preparation run `42831107705` passed the generated
+  Android/Rust host checks, Chaquopy ARM64 Python dependency resolution, and
+  native Kotlin voice bridge compilation. The APK build was deliberately held
+  by the OAuth/stable-signing gate; no APK artifact was produced.
+- The generated Android `applicationId` is
+  `io.jarvisos.jarvis_ui`. Register this exact package name in the user's
+  Google Cloud Android OAuth client; do not reuse an older MEGWIL package ID.
+- The Web OAuth client ID is configured. The Android OAuth client ID and
+  stable signing SHA-1 are not configured in Actions. The release keystore,
+  keystore passwords and alias are also not configured. The workflow requires
+  `JARVIS_GOOGLE_ANDROID_CLIENT_ID`,
+  `JARVIS_ANDROID_STABLE_SIGNING_SHA1`,
+  `JARVIS_ANDROID_KEYSTORE_BASE64`,
+  `JARVIS_ANDROID_KEYSTORE_PASSWORD`,
+  `JARVIS_ANDROID_KEY_ALIAS`, and
+  `JARVIS_ANDROID_KEY_PASSWORD`. The keystore certificate must match the
+  configured SHA-1. Never send or commit private signing material in source.
+- The Vosk native STT engine/model are not bundled. The active STT and wake-word
+  providers use Android `SpeechRecognizer`; offline recognition depends on the
+  phone's speech service and installed language pack.
+- Physical-device end-to-end verification is still required for app-private
+  runtime asset installation, sidecar execution, first-launch Qwen model
+  download and local server startup, microphone/PCM capture, speech recognition
+  and TextToSpeech. CI compilation alone does not prove these device behaviors.
+- The selected local model remains Qwen2.5 0.5B Instruct GGUF Q4_K_M, using a
+  1,024-token context and two CPU threads for the 4 GB physical-RAM target.
+A successful component workflow is not an integrated app. The integrated
+workflow gates the final APK build on the user's verified Google OAuth and
+stable signing configuration; it will not produce an APK while those inputs are missing.
