@@ -16,7 +16,7 @@ JARVIS source or the MEGWIL Android project.
 - `.github/workflows/package_jarvis_android_runtime_assets.yml` aggregates
   the ARM64 sidecars, llama-server and shared libraries into one verified
   runtime-assets artifact. It does not build an APK.
-- `configure_chaquopy.py` configures Python 3.11 with Chaquopy, copies the
+- `configure_chaquopy.py` configures Python 3.14 with Chaquopy and explicitly selects a matching Python 3.14 build interpreter, copies the
   pinned backend and Android overlay, installs the Kotlin voice plugin,
   adds an Android-only floating voice-start control, and stages runtime
   binaries as APK assets. It only modifies a generated Android project copy.

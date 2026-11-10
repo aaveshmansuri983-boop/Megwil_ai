@@ -27,7 +27,7 @@ jobs:
           ref: jarvis-android-fix
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - name: Download and assemble latest successful ARM64 components and Python backend
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

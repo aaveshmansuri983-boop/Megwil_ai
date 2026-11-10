@@ -94,6 +94,7 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
 \n// JARVIS Android embedded Python runtime (ARM64 only).
 chaquopy {
     defaultConfig {
+        buildPython("python3.14")
         version = "3.14"
         pip {
             install("-r", "src/main/python/requirements.txt")

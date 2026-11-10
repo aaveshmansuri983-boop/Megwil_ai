@@ -10,7 +10,7 @@ Android launcher configures its existing API provider to
 - Engine: llama.cpp `llama-server`, built for Android `arm64-v8a`.
 - Starter model: Qwen2.5 0.5B Instruct, GGUF Q4_K_M (downloaded once on first
   launch; model stays in app-private storage).
-- Context: 2,048 tokens initially to keep memory use modest.
+- Context: 1,024 tokens initially to keep memory use modest.
 - Network: loopback only; inference is on-device and does not require an API key.
 - Model size is several hundred MB; first launch requires internet to fetch it.
   Offline use is available after the model download completes.
