@@ -71,6 +71,20 @@ jobs:
           echo "LLM_RUN=$LLM_RUN" >> "$GITHUB_ENV"
           echo "SIDECAR_RUN=$SIDECAR_RUN" >> "$GITHUB_ENV"
           echo "BACKEND_RUN=$BACKEND_RUN" >> "$GITHUB_ENV"
+      - name: Prepare pinned Android-only MCP client SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          MCP_COMMIT="09e3a05e13211d1081efcdc9a962affb02e40c05"
+          git init "$RUNNER_TEMP/mcp-python-sdk"
+          git -C "$RUNNER_TEMP/mcp-python-sdk" remote add origin https://github.com/modelcontextprotocol/python-sdk.git
+          git -C "$RUNNER_TEMP/mcp-python-sdk" fetch --depth 1 origin "$MCP_COMMIT"
+          git -C "$RUNNER_TEMP/mcp-python-sdk" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/mcp-python-sdk" rev-parse HEAD)" = "$MCP_COMMIT"
+          python jarvis-android-runtime/prepare_mcp_android.py \
+            --source "$RUNNER_TEMP/mcp-python-sdk/src/mcp" \
+            --destination "$RUNNER_TEMP/backend/python/mcp" \
+            --commit "$MCP_COMMIT"
       - name: Verify and extract JARVIS V3 source archive
         id: source
         shell: bash
@@ -198,12 +212,15 @@ jobs:
           ./gradlew signingReport --no-daemon > "$RUNNER_TEMP/signing-report.txt"
           DEBUG_SHA1="$(awk '/Variant: debug/{debug=1} debug && /SHA1:/{print $2; exit}' "$RUNNER_TEMP/signing-report.txt" | tr -d ':')"
           export JARVIS_ANDROID_APPLICATION_ID="$APP_ID"
-          export JARVIS_ANDROID_SIGNING_SHA1="$DEBUG_SHA1"
+          # Keep the user-provided stable SHA-1 separate from the temporary CI debug certificate.
           python "$GITHUB_WORKSPACE/jarvis-android-runtime/oauth_check.py" > "$RUNNER_TEMP/oauth-preflight.json"
           {
             echo "### OAuth preflight (IDs are never printed)"
             echo "- Android application ID: $APP_ID"
             echo "- Temporary CI debug SHA-1 present: $([ -n "$DEBUG_SHA1" ] && echo yes || echo no)"
+            echo "- Web OAuth client ID configured: $([ -n "$JARVIS_GOOGLE_WEB_CLIENT_ID" ] && echo yes || echo no)"
+            echo "- Android OAuth client ID configured: $([ -n "$JARVIS_GOOGLE_ANDROID_CLIENT_ID" ] && echo yes || echo no)"
+            echo "- Stable signing SHA-1 configured: $([ -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ] && echo yes || echo no)"
             cat "$RUNNER_TEMP/oauth-preflight.json"
             echo "- A stable signing certificate is still required before final Android OAuth registration."
           } >> "$GITHUB_STEP_SUMMARY"
