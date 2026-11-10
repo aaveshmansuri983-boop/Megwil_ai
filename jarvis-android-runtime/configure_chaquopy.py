@@ -298,7 +298,7 @@ permissions = [
     registration = """
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
-        tauri::plugin::Builder::new("jarvis-voice")
+        tauri::plugin::Builder::<_, ()>::new("jarvis-voice")
             .setup(|app, api| {
                 let data_dir = app.path().app_data_dir()?.join("jarvis-runtime").join("data");
                 let runtime_root = app.path().app_data_dir()?.join("jarvis-runtime");
