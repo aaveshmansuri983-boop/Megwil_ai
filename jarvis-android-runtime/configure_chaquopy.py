@@ -142,14 +142,26 @@ chaquopy {
         lib_rs.write_text(rust)
 
     manifest_text = manifest.read_text()
-    permission = '<uses-permission android:name="android.permission.RECORD_AUDIO" />'
-    if permission not in manifest_text:
-        manifest_start = manifest_text.find("<manifest")
-        pos = manifest_text.find(">", manifest_start)
-        if manifest_start < 0 or pos < 0:
-            raise SystemExit("AndroidManifest.xml has no manifest root element")
-        manifest_text = manifest_text[:pos + 1] + "\n    " + permission + manifest_text[pos + 1:]
-        manifest.write_text(manifest_text)
+    permissions = (
+        '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+        '<uses-permission android:name="android.permission.INTERNET" />',
+    )
+    manifest_start = manifest_text.find("<manifest")
+    manifest_end = manifest_text.find(">", manifest_start)
+    if manifest_start < 0 or manifest_end < 0:
+        raise SystemExit("AndroidManifest.xml has no manifest root element")
+    for permission in permissions:
+        if permission not in manifest_text:
+            manifest_text = manifest_text[:manifest_end + 1] + "\\n    " + permission + manifest_text[manifest_end + 1:]
+            manifest_end = manifest_text.find(">", manifest_start)
+    application_start = manifest_text.find("<application")
+    application_end = manifest_text.find(">", application_start)
+    if application_start < 0 or application_end < 0:
+        raise SystemExit("AndroidManifest.xml has no application element")
+    application_tag = manifest_text[application_start:application_end + 1]
+    if "android:usesCleartextTraffic=" not in application_tag:
+        manifest_text = manifest_text[:application_end] + ' android:usesCleartextTraffic="true"' + manifest_text[application_end:]
+    manifest.write_text(manifest_text)
     print("Chaquopy Gradle plugin and Android Python sources configured.")
     print("NOTE: Project-JARVIS backend source and package compatibility still require verification.")
 
