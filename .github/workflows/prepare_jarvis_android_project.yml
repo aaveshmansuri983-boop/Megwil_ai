@@ -111,7 +111,7 @@ jobs:
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         run: ./gradlew :app:compileDebugKotlin --no-daemon
       - name: Check Android Rust host integration (no APK)
-        working-directory: ${{ env.PROJECT }}/src-tauri
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
