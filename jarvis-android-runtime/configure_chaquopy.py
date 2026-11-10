@@ -287,7 +287,7 @@ permissions = [
         "description": "Allows the main Android window to control native JARVIS voice services.",
         "windows": ["main"],
         "platforms": ["android"],
-        "permissions": ["core:default", "core:event:default", "jarvis-voice:default"],
+        "permissions": ["core:default", "core:event:default", "default"],
     }
     (capabilities_dir / "jarvis-android-voice.json").write_text(json.dumps(voice_capability, indent=2) + "\n")
 
