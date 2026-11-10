@@ -13,10 +13,10 @@ from pathlib import Path
 
 
 def configure_private_storage() -> Path:
-    root = Path(os.environ.get("JARVIS_ANDROID_DATA_DIR", os.environ.get("HOME", "")))
-    if not str(root):
+    raw_root = os.environ.get("JARVIS_ANDROID_DATA_DIR") or os.environ.get("HOME")
+    if not raw_root:
         raise RuntimeError("Android host must provide JARVIS_ANDROID_DATA_DIR")
-    root = root.expanduser().resolve()
+    root = Path(raw_root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     for name in ("config", "data", "models", "bin", "logs"):
         path = root / name
