@@ -60,12 +60,14 @@ JARVIS source or the MEGWIL Android project.
 - The generated Android frontend receives a floating Start JARVIS control. It
   requests microphone permission, initializes the native plugin and starts the
   Python backend. This flow still needs a real-device test.
-- Google OAuth Web and Android Client IDs have not been supplied or verified.
-  Android OAuth also needs the final application ID and a stable signing
-  certificate SHA-1. Never put a client secret in the APK.
-- The Python dependency set must pass Chaquopy's Android wheel-resolution
-  check; packages requiring unsupported native wheels must be replaced or
-  built separately.
+- Google OAuth Web and Android Client IDs and the stable signing certificate
+  SHA-1 are not present in the current repository Actions secrets. The generated
+  applicationId must be paired with that stable SHA-1 in the user's Google Cloud
+  Android OAuth client. Never put a client secret in the APK.
+- The Android build vendors the pinned MCP 1.13.1 stdio client only. Server
+  and CLI extras are excluded, and a small Android JSON Schema validator
+  replaces the desktop jsonschema/rpds dependency which has no Chaquopy ARM64
+  wheel. The complete Chaquopy dependency set must still pass ARM64 resolution.
 
 A successful component workflow is not an integrated app. The final APK
 workflow remains separate and is not started by this preparation pipeline.
