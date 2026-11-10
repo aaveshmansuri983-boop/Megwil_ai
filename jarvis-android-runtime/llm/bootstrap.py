@@ -1,0 +1,100 @@
+"""Start a private, on-device llama.cpp server for JARVIS.
+
+The small starter model is downloaded once into app-private storage. No cloud
+inference endpoint or API key is used. The backend talks to the local server
+through JARVIS' existing OpenAI-compatible API provider.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import shutil
+import subprocess
+import time
+import urllib.request
+from pathlib import Path
+
+MODEL_NAME = "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"
+MODEL_URL = (
+    "https://huggingface.co/bartowski/"
+    "Qwen2.5-0.5B-Instruct-GGUF/resolve/main/"
+    + MODEL_NAME
+)
+MODEL_PATH = Path(os.environ.get("JARVIS_MODELS_DIR", "")) / MODEL_NAME
+SERVER_PATH = Path(os.environ.get("JARVIS_ANDROID_DATA_DIR", "")) / "bin" / "llama-server"
+HOST = "127.0.0.1"
+PORT = 8080
+
+
+def _download_model() -> Path:
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if MODEL_PATH.is_file() and MODEL_PATH.stat().st_size > 100_000_000:
+        return MODEL_PATH
+    partial = MODEL_PATH.with_suffix(MODEL_PATH.suffix + ".part")
+    request = urllib.request.Request(MODEL_URL, headers={"User-Agent": "JARVIS-Android"})
+    with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as out:
+        shutil.copyfileobj(response, out)
+    if partial.stat().st_size < 100_000_000:
+        partial.unlink(missing_ok=True)
+        raise RuntimeError("Downloaded GGUF model is unexpectedly small")
+    partial.replace(MODEL_PATH)
+    return MODEL_PATH
+
+
+def configure_provider() -> Path:
+    config_dir = Path(os.environ["JARVIS_CONFIG_DIR"])
+    config_dir.mkdir(parents=True, exist_ok=True)
+    providers_file = config_dir / "providers.json"
+    import json
+    data = {"providers": []}
+    if providers_file.is_file():
+        try:
+            data = json.loads(providers_file.read_text())
+        except (ValueError, OSError):
+            pass
+    providers = data.setdefault("providers", [])
+    entry = {
+        "name": "android-local-llama",
+        "type": "api",
+        "model": "local-qwen2.5-0.5b",
+        "url": f"http://{HOST}:{PORT}/v1",
+        "api_key": "",
+        "temperature": 0.7,
+    }
+    # Keep user-added providers; place the on-device model first for offline use.
+    providers[:] = [p for p in providers if p.get("name") != entry["name"]]
+    providers.insert(0, entry)
+    providers_file.write_text(json.dumps(data, indent=2) + "\n")
+    return providers_file
+
+
+def start_local_llm() -> subprocess.Popen:
+    if not SERVER_PATH.is_file():
+        raise RuntimeError(f"llama-server binary missing: {SERVER_PATH}")
+    model = _download_model()
+    configure_provider()
+    log_dir = Path(os.environ["JARVIS_ANDROID_DATA_DIR"]) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log = (log_dir / "llama-server.log").open("ab")
+    process = subprocess.Popen(
+        [
+            str(SERVER_PATH), "-m", str(model), "--host", HOST, "--port", str(PORT),
+            "-c", "2048", "-ngl", "99", "--threads", str(max(2, (os.cpu_count() or 4) - 1)),
+        ],
+        cwd=str(log_dir), stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    import httpx
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError("llama-server exited; inspect logs/llama-server.log")
+        try:
+            response = httpx.get(f"http://{HOST}:{PORT}/v1/models", timeout=2)
+            if response.status_code == 200:
+                return process
+        except httpx.HTTPError:
+            pass
+        time.sleep(1)
+    process.terminate()
+    raise TimeoutError("On-device LLM did not become ready within 90 seconds")
