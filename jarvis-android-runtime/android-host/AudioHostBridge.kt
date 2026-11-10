@@ -68,6 +68,8 @@ class AudioHostBridge(
         recorder = null
     }
 
+    fun isSpeechReady(): Boolean = ttsReady
+
     fun speak(text: String) {
         if (!ttsReady || text.isBlank()) return
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis-${System.nanoTime()}")
