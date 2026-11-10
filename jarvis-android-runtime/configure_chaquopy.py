@@ -105,6 +105,7 @@ chaquopy {
     tts_init = python_dir / "jarvis" / "voice" / "tts" / "__init__.py"
     if not tts_init.is_file():
         raise SystemExit("Project-JARVIS TTS provider factory is missing")
+    shutil.copy2(runtime / "android_tts.py", tts_init.parent / "android_tts.py")
     tts_text = tts_init.read_text()
     if 'provider == "android"' not in tts_text:
         anchor_tts = '    raise ValueError(f"Unknown TTS provider:'
@@ -113,6 +114,11 @@ chaquopy {
             raise SystemExit("Cannot safely patch Project-JARVIS TTS provider factory")
         tts_text = tts_text[:pos_tts] + '    if provider == "android":\\n        from .android_tts import AndroidTTS\\n        return AndroidTTS(**kwargs)\\n' + tts_text[pos_tts:]
         tts_init.write_text(tts_text)
+
+    # Make the typed plugin client available to the frontend source tree.
+    web_src = project / "src"
+    if web_src.is_dir():
+        shutil.copy2(runtime / "android-host" / "voice-bridge.ts", web_src / "jarvis-voice.ts")
 
     # Register the Kotlin plugin in the Android-only Rust build copy.
     lib_rs = project / "src-tauri" / "src" / "lib.rs"
