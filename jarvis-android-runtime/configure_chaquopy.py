@@ -76,7 +76,7 @@ chaquopy {
     python_dir = android / "app" / "src" / "main" / "python"
     python_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(backend_source / "jarvis", python_dir / "jarvis", dirs_exist_ok=True)
-    for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "requirements-android.txt"):
+    for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "android_audio.py", "android_sounddevice.py", "requirements-android.txt"):
         src = runtime / name
         if not src.is_file():
             raise SystemExit(f"Android Python runtime input missing: {src}")
