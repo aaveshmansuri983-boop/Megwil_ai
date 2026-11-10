@@ -174,6 +174,27 @@ chaquopy {
     python_dir = android / "app" / "src" / "main" / "python"
     python_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(backend_source / "jarvis", python_dir / "jarvis", dirs_exist_ok=True)
+    # Project-JARVIS normally disables TTS when PortAudio reports no physical
+    # output device. Android uses the native TextToSpeech service instead, so
+    # bypass only that desktop audio-device gate for the Android TTS provider.
+    component_factory = python_dir / "jarvis" / "core" / "component_factory.py"
+    if not component_factory.is_file():
+        raise SystemExit("Project-JARVIS component factory is missing")
+    factory_text = component_factory.read_text()
+    output_gate = """        if not check_audio_output_available():
+            logger.warning("Audio output devices not available, TTS disabled")
+            return None
+"""
+    android_output_gate = """        # Native Android TextToSpeech does not require a sounddevice output device.
+        if Config.TTS_PROVIDER != "android" and not check_audio_output_available():
+            logger.warning("Audio output devices not available, TTS disabled")
+            return None
+"""
+    if android_output_gate not in factory_text:
+        if output_gate not in factory_text:
+            raise SystemExit("Cannot safely locate Project-JARVIS TTS audio availability check")
+        factory_text = factory_text.replace(output_gate, android_output_gate, 1)
+        component_factory.write_text(factory_text)
     mcp_source = backend_source / "mcp"
     if not (mcp_source / "client" / "session.py").is_file():
         raise SystemExit("Android-compatible vendored MCP client source is missing")
