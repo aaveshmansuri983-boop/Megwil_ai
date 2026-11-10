@@ -128,7 +128,12 @@ chaquopy {
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
         tauri::plugin::Builder::new("jarvis-voice")
-            .setup(|_app, api| {
+            .setup(|app, api| {
+                let data_dir = app.path().app_data_dir()?.join("jarvis-runtime").join("data");
+                let runtime_root = app.path().app_data_dir()?.join("jarvis-runtime");
+                std::env::set_var("JARVIS_DATA_DIR", data_dir.to_string_lossy().to_string());
+                std::env::set_var("JARVIS_ANDROID_DATA_DIR", runtime_root.to_string_lossy().to_string());
+                std::env::set_var("HOME", runtime_root.to_string_lossy().to_string());
                 api.register_android_plugin("com.jarvis.android.host", "JarvisVoicePlugin")?;
                 Ok(())
             })
