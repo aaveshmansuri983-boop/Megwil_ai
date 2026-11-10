@@ -65,6 +65,8 @@ jobs:
           mkdir -p llm-unpacked sidecars-unpacked
           tar -xzf "$LLM_TAR" -C llm-unpacked
           tar -xzf "$SIDECAR_TAR" -C sidecars-unpacked
+          (cd llm-unpacked && sha256sum -c SHA256SUMS.txt)
+          (cd sidecars-unpacked && sed 's|dist/||' SHA256SUMS.txt | sha256sum -c -)
           mkdir -p dist/jarvis-runtime/bin dist/jarvis-runtime/lib
           cp sidecars-unpacked/bin/{dispatch,dmcp,contextor} dist/jarvis-runtime/bin/
           cp llm-unpacked/bin/llama-server dist/jarvis-runtime/bin/
