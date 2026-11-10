@@ -48,7 +48,7 @@ class AndroidSTT(STTProvider):
             return None
         if item[1] and self._running:
             self._router.listenOnce()
-        return item
+        return item if item[0] else None
 
     def is_running(self) -> bool:
         return self._running
