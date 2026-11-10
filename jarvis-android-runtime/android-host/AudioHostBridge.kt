@@ -63,7 +63,7 @@ class AudioHostBridge(
 
     fun stopRecording() {
         running.set(false)
-        recorder?.runCatching { stop() }
+        try { recorder?.stop() } catch (_: Exception) { }
         recorder?.release()
         recorder = null
     }
