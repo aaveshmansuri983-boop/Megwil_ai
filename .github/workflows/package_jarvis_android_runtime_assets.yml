@@ -1,4 +1,5 @@
 name: Package JARVIS Android runtime assets (no APK)
+# Triggered after component builds; never invokes APK packaging.
 
 on:
   push:
