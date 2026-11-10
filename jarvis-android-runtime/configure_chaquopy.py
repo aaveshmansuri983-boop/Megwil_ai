@@ -53,6 +53,16 @@ def configure(project: Path, runtime: Path, backend_source: Path, runtime_assets
 
     insert_plugin(root_gradle, VERSION)
     insert_plugin(app_gradle, PLUGIN, after='id("com.android.application")')
+    # Chaquopy ships a native CPython runtime; keep the app ARM64-only.
+    app_text_before = app_gradle.read_text()
+    if "abiFilters" not in app_text_before:
+        default_marker = "defaultConfig {"
+        pos = app_text_before.find(default_marker)
+        if pos < 0:
+            raise SystemExit("Cannot locate Android defaultConfig block for Chaquopy ABI filter")
+        insert_at = pos + len(default_marker)
+        app_text_before = app_text_before[:insert_at] + '\n        ndk { abiFilters += listOf("arm64-v8a") }' + app_text_before[insert_at:]
+        app_gradle.write_text(app_text_before)
     app_text = app_gradle.read_text()
     if "chaquopy {" not in app_text:
         app_text += """
