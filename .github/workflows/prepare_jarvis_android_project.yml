@@ -97,6 +97,38 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo tauri android init --ci --skip-targets-install
+      - name: Collect OAuth package and provisional debug signing details
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        env:
+          JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID }}
+          JARVIS_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_ANDROID_CLIENT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_ID="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("app/build.gradle.kts").read_text()
+          match = re.search(r'applicationId\\s*=\\s*"([^"]+)"', text)
+          if not match:
+              match = re.search(r'applicationId\\s+"([^"]+)"', text)
+          if not match:
+              raise SystemExit("Android applicationId not found")
+          print(match.group(1))
+          PY
+          )"
+          ./gradlew signingReport --no-daemon > "$RUNNER_TEMP/signing-report.txt"
+          DEBUG_SHA1="$(awk '/Variant: debug/{debug=1} debug && /SHA1:/{print $2; exit}' "$RUNNER_TEMP/signing-report.txt" | tr -d ':')"
+          export JARVIS_ANDROID_APPLICATION_ID="$APP_ID"
+          export JARVIS_ANDROID_SIGNING_SHA1="$DEBUG_SHA1"
+          python "$GITHUB_WORKSPACE/jarvis-android-runtime/oauth_check.py" > "$RUNNER_TEMP/oauth-preflight.json"
+          {
+            echo "### OAuth preflight (IDs are never printed)"
+            echo "- Android application ID: $APP_ID"
+            echo "- Temporary CI debug SHA-1 present: $([ -n "$DEBUG_SHA1" ] && echo yes || echo no)"
+            cat "$RUNNER_TEMP/oauth-preflight.json"
+            echo "- A stable signing certificate is still required before final Android OAuth registration."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Configure embedded Python, native voice, and private runtime assets
         run: |
           python jarvis-android-runtime/configure_chaquopy.py \
