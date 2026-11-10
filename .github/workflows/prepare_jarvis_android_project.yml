@@ -132,6 +132,7 @@ jobs:
         env:
           JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID }}
           JARVIS_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_ANDROID_CLIENT_ID }}
+          JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
         shell: bash
         run: |
           set -euo pipefail
