@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: jarvis-android-llm-build
+  cancel-in-progress: true
+
 jobs:
   build-llama-android:
     runs-on: ubuntu-latest
