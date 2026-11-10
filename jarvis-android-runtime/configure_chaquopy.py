@@ -23,7 +23,7 @@ def insert_plugin(path: Path, line: str) -> None:
     path.write_text(text)
 
 
-def configure(project: Path, runtime: Path) -> None:
+def configure(project: Path, runtime: Path, backend_source: Path) -> None:
     android = project / "src-tauri" / "gen" / "android"
     root_gradle = android / "build.gradle.kts"
     app_gradle = android / "app" / "build.gradle.kts"
@@ -59,8 +59,14 @@ chaquopy {
 """
         app_gradle.write_text(app_text)
 
+    if not (backend_source / "jarvis" / "main.py").is_file():
+        raise SystemExit(f"Project-JARVIS backend source is incomplete: {backend_source}")
+    if not (backend_source / "jarvis" / "platform" / "android.py").is_file():
+        raise SystemExit("Android platform overlay was not applied to Project-JARVIS source")
+
     python_dir = android / "app" / "src" / "main" / "python"
     python_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(backend_source / "jarvis", python_dir / "jarvis", dirs_exist_ok=True)
     for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "requirements-android.txt"):
         src = runtime / name
         if not src.is_file():
@@ -118,5 +124,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--runtime", type=Path, default=Path(__file__).parent)
+    parser.add_argument("--backend-source", type=Path, required=True, help="Extracted pinned Project-JARVIS source with Android overlay applied")
     args = parser.parse_args()
-    configure(args.project.resolve(), args.runtime.resolve())
+    configure(args.project.resolve(), args.runtime.resolve(), args.backend_source.resolve())
