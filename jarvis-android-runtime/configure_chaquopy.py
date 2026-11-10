@@ -86,7 +86,7 @@ chaquopy {
     # Copy the native voice host and Tauri v2 plugin wrapper into the generated app.
     kotlin_dir = android / "app" / "src" / "main" / "java" / "com" / "jarvis" / "android" / "host"
     kotlin_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt"):
+    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "RuntimeAssetInstaller.kt"):
         src = runtime / "android-host" / name
         if not src.is_file():
             raise SystemExit(f"Native Android voice source missing: {src}")
