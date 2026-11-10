@@ -33,23 +33,48 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Download latest successful runtime assets and Python backend
+      - name: Download and assemble latest successful ARM64 components and Python backend
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          ASSET_RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow package_jarvis_android_runtime_assets.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          LLM_RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build_jarvis_android_llm.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          SIDECAR_RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build_jarvis_android_sidecars.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
           BACKEND_RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow prepare_jarvis_android_backend.yml --branch jarvis-android-fix --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$ASSET_RUN" && test "$ASSET_RUN" != "null"
-          test -n "$BACKEND_RUN" && test "$BACKEND_RUN" != "null"
-          gh run download "$ASSET_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-Runtime-Assets --dir "$RUNNER_TEMP/runtime-assets"
+          for value in "$LLM_RUN" "$SIDECAR_RUN" "$BACKEND_RUN"; do
+            test -n "$value" && test "$value" != "null"
+          done
+          gh run download "$LLM_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-ARM64-LLM --dir "$RUNNER_TEMP/llm-artifact"
+          gh run download "$SIDECAR_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-ARM64-Sidecars --dir "$RUNNER_TEMP/sidecar-artifact"
           gh run download "$BACKEND_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-Android-Python-Backend --dir "$RUNNER_TEMP/backend-artifact"
-          mkdir -p "$RUNNER_TEMP/backend"
+          LLM_TAR="$(find "$RUNNER_TEMP/llm-artifact" -type f -name 'JARVIS-Android-ARM64-LLM.tar.gz' | head -n 1)"
+          SIDECAR_TAR="$(find "$RUNNER_TEMP/sidecar-artifact" -type f -name 'JARVIS-Android-ARM64-Sidecars.tar.gz' | head -n 1)"
           BACKEND_TAR="$(find "$RUNNER_TEMP/backend-artifact" -type f -name 'JARVIS-Android-Python-Backend.tar.gz' | head -n 1)"
-          test -n "$BACKEND_TAR"
+          test -n "$LLM_TAR" && test -n "$SIDECAR_TAR" && test -n "$BACKEND_TAR"
+          mkdir -p "$RUNNER_TEMP/llm-unpacked" "$RUNNER_TEMP/sidecars-unpacked" "$RUNNER_TEMP/backend" "$RUNNER_TEMP/runtime-assets/bin" "$RUNNER_TEMP/runtime-assets/lib"
+          tar -xzf "$LLM_TAR" -C "$RUNNER_TEMP/llm-unpacked"
+          tar -xzf "$SIDECAR_TAR" -C "$RUNNER_TEMP/sidecars-unpacked"
           tar -xzf "$BACKEND_TAR" -C "$RUNNER_TEMP/backend"
-          echo "ASSET_RUN=$ASSET_RUN" >> "$GITHUB_ENV"
+          (cd "$RUNNER_TEMP/llm-unpacked" && sha256sum -c SHA256SUMS.txt)
+          (cd "$RUNNER_TEMP/sidecars-unpacked" && sed 's|dist/||' SHA256SUMS.txt | sha256sum -c -)
+          cp "$RUNNER_TEMP/sidecars-unpacked/bin/"{dispatch,dmcp,contextor} "$RUNNER_TEMP/runtime-assets/bin/"
+          cp "$RUNNER_TEMP/llm-unpacked/bin/llama-server" "$RUNNER_TEMP/runtime-assets/bin/"
+          cp "$RUNNER_TEMP/llm-unpacked/lib/"*.so "$RUNNER_TEMP/runtime-assets/lib/"
+          for name in libllama-server-impl.so libllama-common.so libmtmd.so libllama.so libggml.so libggml-cpu.so libggml-base.so; do
+            test -s "$RUNNER_TEMP/runtime-assets/lib/$name"
+          done
+          chmod 0755 "$RUNNER_TEMP/runtime-assets/bin/"*
+          (cd "$RUNNER_TEMP/runtime-assets" && sha256sum bin/* lib/*.so > SHA256SUMS.txt)
+          {
+            echo "branch=jarvis-android-fix"
+            echo "llm_workflow_run=$LLM_RUN"
+            echo "sidecar_workflow_run=$SIDECAR_RUN"
+            echo "abi=arm64-v8a"
+            echo "apk_built=false"
+          } > "$RUNNER_TEMP/runtime-assets/manifest.txt"
+          echo "LLM_RUN=$LLM_RUN" >> "$GITHUB_ENV"
+          echo "SIDECAR_RUN=$SIDECAR_RUN" >> "$GITHUB_ENV"
           echo "BACKEND_RUN=$BACKEND_RUN" >> "$GITHUB_ENV"
       - name: Verify and extract JARVIS V3 source archive
         id: source
@@ -172,7 +197,8 @@ jobs:
           {
             echo "## JARVIS Android preparation"
             echo "- APK build: **not run**"
-            echo "- Runtime asset artifact run: $ASSET_RUN"
+            echo "- LLM workflow run: $LLM_RUN"
+            echo "- Sidecar workflow run: $SIDECAR_RUN"
             echo "- Python backend artifact run: $BACKEND_RUN"
             echo "- Checks attempted: Chaquopy Python dependencies, Kotlin native voice bridge, Rust Android host."
             echo "- MEGWIL and desktop JARVIS source were not modified."
