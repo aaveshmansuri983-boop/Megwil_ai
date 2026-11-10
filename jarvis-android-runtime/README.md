@@ -33,3 +33,5 @@ pretending the UI APK is a complete assistant.
 ## Native sidecars
 
 The dedicated GitHub Actions workflow `.github/workflows/build_jarvis_android_sidecars.yml` cross-compiles the upstream Dispatch, DMCP and Contextor Rust programs for Android `arm64-v8a` and publishes a checksum-verified sidecar artifact. A successful compile does not by itself mean those programs are wired into the APK; the host launcher must stage and execute them from app-private storage.
+
+Sidecar build workflow now invokes Cargo from each cloned component's own crate directory before cross-compiling.
