@@ -40,12 +40,25 @@ def configure_private_storage() -> Path:
     return root
 
 
+def _module_available(name: str) -> bool:
+    """Return False for absent nested packages instead of crashing preflight.
+
+    find_spec('parent.child') imports the parent package; on a clean host test
+    runner that parent may not be installed yet. Missing optional/runtime modules
+    are readiness failures, not exceptions that should abort the diagnostic.
+    """
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
 def inspect_runtime() -> dict[str, object]:
     root = configure_private_storage()
     required_modules = ("ollama", "dotenv", "mcp", "httpx", "pathspec", "android_audio", "android_sounddevice", "jarvis.voice.stt.android_stt", "jarvis.voice.activation.android_activation", "jarvis.voice.tts.android_tts")
     required_bins = ("dispatch", "dmcp", "contextor")
     required_llm_libs = ("libllama-server-impl.so", "libllama-common.so", "libmtmd.so", "libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so")
-    modules = {name: importlib.util.find_spec(name) is not None for name in required_modules}
+    modules = {name: _module_available(name) for name in required_modules}
     bins = {name: shutil.which(name) is not None or (root / "bin" / name).is_file()
             for name in required_bins}
     llm = {"server": (root / "bin" / "llama-server").is_file(),
