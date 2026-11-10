@@ -77,6 +77,12 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.resolve(result)
                 return
             }
+            if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
+                result.put("started", false)
+                result.put("reason", "Android speech recognition service is unavailable")
+                invoke.resolve(result)
+                return
+            }
             val audio = bridge
             if (audio == null || !audio.isSpeechReady()) {
                 result.put("started", false)
