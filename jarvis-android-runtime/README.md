@@ -18,8 +18,8 @@ JARVIS source or the MEGWIL Android project.
   runtime-assets artifact. It does not build an APK.
 - `configure_chaquopy.py` configures Python 3.11 with Chaquopy, copies the
   pinned backend and Android overlay, installs the Kotlin voice plugin,
-  and stages runtime binaries as APK assets. It only modifies a generated
-  Android project copy.
+  adds an Android-only floating voice-start control, and stages runtime
+  binaries as APK assets. It only modifies a generated Android project copy.
 - `.github/workflows/prepare_jarvis_android_project.yml` initializes that
   generated Android project and checks Python package compatibility, Kotlin
   compilation and Rust Android host integration. It deliberately does not
