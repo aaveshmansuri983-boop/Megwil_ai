@@ -1,0 +1,8 @@
+# Android backend modules checked by bootstrap.py.
+# Install into the embedded Android Python environment; verify wheel/ABI compatibility
+# against the selected Python-for-Android runtime before enabling daemon startup.
+ollama>=0.4,<1
+python-dotenv>=1,<2
+mcp>=1,<2
+httpx>=0.27,<1
+pathspec>=0.12,<1
