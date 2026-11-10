@@ -191,7 +191,7 @@ jobs:
       - name: Collect OAuth package and provisional debug signing details
         working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
         env:
-          JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID }}
+          JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID || secrets.GOOGLE_WEB_CLIENT_ID }}
           JARVIS_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_ANDROID_CLIENT_ID }}
           JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
         shell: bash
