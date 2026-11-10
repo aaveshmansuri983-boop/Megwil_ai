@@ -154,7 +154,7 @@ chaquopy {
     config_path = project / "src-tauri" / "tauri.conf.json"
     config_data = json.loads(config_path.read_text())
     config_data.setdefault("app", {})["withGlobalTauri"] = True
-    config_path.write_text(json.dumps(config_data, indent=2) + "\\n")
+    config_path.write_text(json.dumps(config_data, indent=2) + "\n")
     web_src = project / "src"
     if not web_src.is_dir():
         raise SystemExit("Tauri frontend source directory is missing")
@@ -166,9 +166,9 @@ chaquopy {
     script_tag = '<script type="module" src="./jarvis-android-voice.js"></script>'
     if script_tag not in html:
         if "</body>" in html:
-            html = html.replace("</body>", script_tag + "\\n</body>", 1)
+            html = html.replace("</body>", script_tag + "\n</body>", 1)
         else:
-            html += "\\n" + script_tag + "\\n"
+            html += "\n" + script_tag + "\n"
         index_html.write_text(html)
 
     # Make the typed plugin client available to the frontend source tree.
