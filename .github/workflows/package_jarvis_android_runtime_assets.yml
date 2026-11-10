@@ -10,10 +10,6 @@ on:
       - ".github/workflows/build_jarvis_android_sidecars.yml"
       - "jarvis-android-runtime/llm/**"
       - "jarvis-android-runtime/sidecars/**"
-  workflow_run:
-    workflows: ["Build JARVIS Android local LLM runtime"]
-    types: [completed]
-    branches: ["jarvis-android-fix"]
 
 permissions:
   actions: read
@@ -25,7 +21,6 @@ concurrency:
 
 jobs:
   package-runtime-assets:
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
