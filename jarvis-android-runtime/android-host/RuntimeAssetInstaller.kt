@@ -44,7 +44,7 @@ object RuntimeAssetInstaller {
                     digest.update(buffer, 0, count)
                 }
             }
-            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            val actual = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
             require(actual.equals(parts[0], ignoreCase = true)) { "Runtime SHA-256 mismatch: ${parts[1]}" }
         }
     }
