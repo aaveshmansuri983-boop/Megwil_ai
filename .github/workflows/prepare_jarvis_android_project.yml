@@ -139,7 +139,30 @@ jobs:
           set +o pipefail
           yes | "$SDKMANAGER" --licenses >/dev/null
           set -o pipefail
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1"
+          # NDK archives are large; a transient/truncated download can leave a
+          # partial package in the SDK cache. Remove partial state and retry.
+          NDK_PACKAGE="$SDK_ROOT/ndk/27.0.12077973"
+          NDK_OK=false
+          for attempt in 1 2 3; do
+            if [[ -x "$NDK_PACKAGE/ndk-build" ]]; then
+              NDK_OK=true
+              break
+            fi
+            rm -rf "$NDK_PACKAGE" "$SDK_ROOT/.temp" "$SDK_ROOT/temp"
+            echo "Installing Android NDK 27.0.12077973 (attempt $attempt/3)"
+            if "$SDKMANAGER" "ndk;27.0.12077973"; then
+              if [[ -x "$NDK_PACKAGE/ndk-build" ]]; then
+                NDK_OK=true
+                break
+              fi
+            fi
+            sleep $((attempt * 10))
+          done
+          if [[ "$NDK_OK" != "true" ]]; then
+            echo "::error::Android NDK 27.0.12077973 could not be installed after 3 clean attempts"
+            exit 1
+          fi
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
