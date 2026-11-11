@@ -373,9 +373,9 @@ jobs:
         working-directory: ${{ steps.source.outputs.project }}
         env:
           JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
-          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD || secrets.PASSWORD || secrets.password }}
           JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
-          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD || secrets.PASSWORD || secrets.password }}
           JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
         shell: bash
         run: |
@@ -428,7 +428,7 @@ jobs:
         run: |
           {
             echo "## JARVIS Android preparation"
-            echo "- APK build: yes
+            echo "- APK build: conditional on OAuth and stable signing prerequisites"
             echo "- LLM workflow run: $LLM_RUN"
             echo "- Sidecar workflow run: $SIDECAR_RUN"
             echo "- Python backend artifact run: $BACKEND_RUN"
