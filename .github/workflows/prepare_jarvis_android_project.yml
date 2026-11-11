@@ -252,6 +252,27 @@ jobs:
           MAIN_PACKAGE="$(sed -n 's/^package[[:space:]]\+//p' "$MAIN_ACTIVITY" | head -n 1)"
           test "$MAIN_PACKAGE" = "$KOTLIN_PACKAGE"
           grep -R --include='*.kt' -q "^package $KOTLIN_PACKAGE$" "$KOTLIN_OUT"
+          # Tauri init leaves framework Kotlin stubs in the package root while
+          # Wry regenerates the same classes under generated/. Kotlin compiles
+          # both recursively, causing Redeclaration errors. Keep the generated
+          # Wry implementation and remove only same-named root duplicates.
+          python - "$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH" <<'PY'
+          import sys
+          from pathlib import Path
+          package_root = Path(sys.argv[1])
+          generated = package_root / "generated"
+          if not generated.is_dir():
+              raise SystemExit(f"Expected Wry generated Kotlin directory missing: {generated}")
+          removed = []
+          for generated_file in generated.glob("*.kt"):
+              root_file = package_root / generated_file.name
+              if root_file.is_file():
+                  root_file.unlink()
+                  removed.append(root_file.name)
+          if not removed:
+              raise SystemExit("No duplicate root Kotlin sources found; refusing to silently skip the deduplication check")
+          print("Removed duplicate Tauri Kotlin stubs from package root:", ", ".join(sorted(removed)))
+          PY
           if grep -R --include='*.kt' -nE '^package[[:space:]].*-' "$KOTLIN_OUT"; then
             echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
             exit 1
