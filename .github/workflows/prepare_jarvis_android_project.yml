@@ -14,7 +14,7 @@ on:
         description: "Build Apk
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   actions: read
@@ -358,7 +358,7 @@ jobs:
           echo "APK build held: required Google OAuth and stable release-signing prerequisites are not all configured."
           echo "No APK will be compiled, signed, or uploaded in this run."
       - name: Build JARVIS V3 Android ARM64 APK
-        if: steps.oauth.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_apk == true
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
         working-directory: ${{ steps.source.outputs.project }}
         timeout-minutes: 60
         env:
@@ -369,7 +369,7 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
         run: cargo tauri android build --apk --target aarch64 --ci
       - name: Sign and verify installable APK
-        if: steps.oauth.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_apk == true
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
         working-directory: ${{ steps.source.outputs.project }}
         env:
           JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
@@ -396,7 +396,7 @@ jobs:
           test -n "$ACTUAL_SHA1" && test "$ACTUAL_SHA1" = "$EXPECTED_SHA1"
           echo "APK_SIGNING_SHA1=$ACTUAL_SHA1" >> "$GITHUB_ENV"
       - name: Package and upload direct APK artifact
-        if: steps.oauth.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_apk == true
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
         working-directory: ${{ steps.source.outputs.project }}
         shell: bash
         run: |
@@ -414,7 +414,7 @@ jobs:
             echo "- Google Android OAuth client: verified by the preflight before this step can run"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload JARVIS V3 Android APK
-        if: steps.oauth.outputs.ready == 'true' && github.event_name == 'workflow_dispatch' && inputs.build_apk == true
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-V3-Android-APK
