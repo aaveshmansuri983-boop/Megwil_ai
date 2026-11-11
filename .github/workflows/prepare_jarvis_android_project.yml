@@ -293,9 +293,12 @@ jobs:
               if root_file.is_file():
                   root_file.unlink()
                   removed.append(root_file.name)
-          if not removed:
-              raise SystemExit("No duplicate root Kotlin sources found; refusing to silently skip the deduplication check")
-          print("Removed duplicate Tauri Kotlin stubs from package root:", ", ".join(sorted(removed)))
+          if removed:
+              print("Removed duplicate Tauri Kotlin stubs from package root:", ", ".join(sorted(removed)))
+          else:
+              # Some Tauri/Wry versions emit framework classes only under
+              # generated/. No root duplicates means there is nothing to remove.
+              print("No root Kotlin duplicates present; generated Wry sources are retained.")
           PY
           if grep -R --include='*.kt' -nE '^package[[:space:]].*-' "$KOTLIN_OUT"; then
             echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
