@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       build_apk:
-        description: "Build Apk
+        description: "Build APK"
         required: true
         type: boolean
         default: true
