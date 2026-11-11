@@ -221,7 +221,8 @@ jobs:
           PY
           )"
           PACKAGE_PATH="${KOTLIN_PACKAGE//./\/}"
-          KOTLIN_OUT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH"
+          PACKAGE_ROOT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH"
+          KOTLIN_OUT="$PACKAGE_ROOT/generated"
           mkdir -p "$KOTLIN_OUT"
           export TAURI_ANDROID_PROJECT_PATH="$PROJECT/src-tauri/gen/android"
           export TAURI_ANDROID_PACKAGE_UNESCAPED="$KOTLIN_PACKAGE"
@@ -256,7 +257,7 @@ jobs:
           # Wry regenerates the same classes under generated/. Kotlin compiles
           # both recursively, causing Redeclaration errors. Keep the generated
           # Wry implementation and remove only same-named root duplicates.
-          python - "$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH" <<'PY'
+          python - "$PACKAGE_ROOT" <<'PY'
           import sys
           from pathlib import Path
           package_root = Path(sys.argv[1])
