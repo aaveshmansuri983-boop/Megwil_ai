@@ -125,5 +125,5 @@ capability = {
         "jarvis-voice:allow-request-permissions",
     ],
 }
-voice_capability.write_text(json.dumps(capability, indent=2) + "\\n", encoding="utf-8")
+voice_capability.write_text(json.dumps(capability, indent=2) + "\n", encoding="utf-8")
 print("Added Android-only JARVIS voice permission ACL capability")
