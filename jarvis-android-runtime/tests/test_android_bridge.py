@@ -112,6 +112,18 @@ class AndroidBridgeTests(unittest.TestCase):
         self.assertIn('generated_config_path.write_text(serialized_config)', config_script)
         self.assertIn('if "jarvis-android-voice" not in packaged_capabilities:', config_script)
 
+    def test_backend_startup_failure_is_persisted_and_exposed(self):
+        bootstrap = (RUNTIME / "bootstrap.py").read_text()
+        plugin = (RUNTIME / "android-host" / "JarvisVoicePlugin.kt").read_text()
+        bridge = (RUNTIME / "android-host" / "voice-bridge.js").read_text()
+        self.assertIn('backend-status.json', bootstrap)
+        self.assertIn('_write_backend_status(root, "not-ready"', bootstrap)
+        self.assertIn('_write_backend_status(root, "error"', bootstrap)
+        self.assertIn('readBackendStatus()', plugin)
+        self.assertIn('onlineProviderCount', plugin)
+        self.assertIn('Backend startup stage:', bridge)
+        self.assertIn('Online providers saved:', bridge)
+
     def test_exact_voice_action_phrases(self):
         self.assertEqual(parse_voice_command("open WhatsApp"), {"action": "open_app", "target": "whatsapp"})
         self.assertEqual(parse_voice_command("call +91 98765 43210"), {"action": "dial", "target": "+919876543210"})
