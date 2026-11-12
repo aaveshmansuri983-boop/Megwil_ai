@@ -7,6 +7,8 @@ on:
     paths:
       - ".github/workflows/build_jarvis_v3_android.yml"
       - "jarvis-app-android-v3.zip"
+      - "jarvis-v3-assets/**"
+      - "scripts/patch_jarvis_v3_orb.py"
       - "jarvis-android-runtime/**"
       - "scripts/preflight_jarvis_v3_release.py"
       - "scripts/smoke_test_jarvis_hud.mjs"
@@ -109,13 +111,38 @@ jobs:
           test -f "$PROJECT/src/index.html"
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+      - name: Apply verified original orb and FreeLLMAPI source overlay
+        id: orb-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATCHED_ARCHIVE="$RUNNER_TEMP/jarvis-v3-source-patched.zip"
+          ORB_IMAGE="$GITHUB_WORKSPACE/jarvis-v3-assets/jarvis-orb-selected.jpg"
+          if [[ -s "$ORB_IMAGE" ]]; then
+            python scripts/patch_jarvis_v3_orb.py --project "$PROJECT" --orb-image "$ORB_IMAGE"
+          else
+            echo "::warning::Original orb asset is missing from jarvis-v3-assets; the visual release gate will remain closed."
+          fi
+          python - "$PROJECT" "$PATCHED_ARCHIVE" <<'PY'
+          import sys
+          import zipfile
+          from pathlib import Path
+          project = Path(sys.argv[1]).resolve()
+          output = Path(sys.argv[2])
+          root = project.parent
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for path in sorted(project.rglob("*")):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(root).as_posix())
+          PY
+          echo "PATCHED_ARCHIVE=$PATCHED_ARCHIVE" >> "$GITHUB_ENV"
       - name: Evaluate original orb, FreeLLMAPI and Android runtime release gates
         id: features
         shell: bash
         run: |
           set -euo pipefail
           python scripts/preflight_jarvis_v3_release.py \
-            --archive jarvis-app-android-v3.zip \
+            --archive "$PATCHED_ARCHIVE" \
             --runtime jarvis-android-runtime > "$RUNNER_TEMP/jarvis-v3-feature-gates.json"
           python - "$RUNNER_TEMP/jarvis-v3-feature-gates.json" <<'PY'
           import json, os, sys
