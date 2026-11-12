@@ -105,6 +105,13 @@ class AndroidBridgeTests(unittest.TestCase):
         self.assertIn('"allow-save-online-provider"', permissions)
         self.assertIn("SAVE ONLINE PROVIDER", bridge)
 
+    def test_generated_android_config_carries_voice_capability(self):
+        config_script = (RUNTIME / "configure_chaquopy.py").read_text()
+        self.assertIn('security_config["capabilities"] = configured_capabilities', config_script)
+        self.assertIn('generated_config_path = android / "app" / "src" / "main" / "assets" / "tauri.conf.json"', config_script)
+        self.assertIn('generated_config_path.write_text(serialized_config)', config_script)
+        self.assertIn('if "jarvis-android-voice" not in packaged_capabilities:', config_script)
+
     def test_exact_voice_action_phrases(self):
         self.assertEqual(parse_voice_command("open WhatsApp"), {"action": "open_app", "target": "whatsapp"})
         self.assertEqual(parse_voice_command("call +91 98765 43210"), {"action": "dial", "target": "+919876543210"})
