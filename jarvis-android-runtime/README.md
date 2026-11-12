@@ -86,6 +86,22 @@ or OAuth credentials to source control.
   management. Start the gateway before using the FreeLLMAPI provider in JARVIS;
   if it is unavailable, JARVIS' existing local llama.cpp provider remains the
   final offline fallback.
+- Termux quick setup (install Termux from F-Droid, not the outdated
+  Play Store build):
+  ```sh
+  pkg update && pkg upgrade -y
+  pkg install -y nodejs-lts git
+  git clone https://github.com/tashfeenahmed/freellmapi.git
+  cd freellmapi
+  npm install --no-audit --no-fund
+  npm run dev
+  ```
+  Open `http://localhost:5173` in the phone browser, add your own free-tier
+  provider API keys in the dashboard, then copy the gateway's unified
+  `freellmapi-…` token into JARVIS Settings. The gateway API listens on
+  `http://127.0.0.1:3001/v1`. These are the upstream project's documented
+  development-mode commands; keep Termux running and use Android's battery
+  settings to prevent it from being aggressively suspended.
 - The existing Project-JARVIS ordered provider pool tries configured online API
   providers first and keeps the local llama.cpp model as the final offline
   fallback. If no cloud provider is configured, the local model is first.
