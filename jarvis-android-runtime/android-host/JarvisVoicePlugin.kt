@@ -41,6 +41,14 @@ internal class PhoneActionArgs {
     var value: String? = null
 }
 
+@InvokeArg
+internal class OnlineProviderArgs {
+    lateinit var provider: String
+    lateinit var baseUrl: String
+    lateinit var model: String
+    var apiKey: String? = null
+}
+
 /**
  * Tauri v2 Android host for AudioRecord, Android SpeechRecognizer and TextToSpeech.
  * Register as com.jarvis.android.host.JarvisVoicePlugin from the Rust Android host.
@@ -276,6 +284,67 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 .put("last_error", error.message ?: error.javaClass.simpleName).toString()
         }
         invoke.resolve(JSObject().apply { put("statusJson", statusJson) })
+    }
+
+    @Command
+    fun saveOnlineProvider(invoke: Invoke) {
+        val args = invoke.parseArgs(OnlineProviderArgs::class.java)
+        val provider = args.provider.trim().lowercase()
+        val allowed = setOf("groq", "gemini", "openrouter", "custom")
+        val baseUrl = args.baseUrl.trim().trimEnd('/')
+        val model = args.model.trim()
+        val apiKey = args.apiKey?.trim().orEmpty()
+        try {
+            require(provider in allowed) { "Unsupported provider" }
+            require(baseUrl.startsWith("https://") ||
+                baseUrl.startsWith("http://127.0.0.1") ||
+                baseUrl.startsWith("http://localhost")) { "Use HTTPS for online providers" }
+            require(model.isNotBlank() && model.length <= 160) { "Enter a valid model name" }
+            require(apiKey.isNotBlank() && apiKey.length <= 512) { "Enter the provider API key" }
+            val root = java.io.File(activity.filesDir, "jarvis-runtime/config")
+            root.mkdirs()
+            val file = java.io.File(root, "providers.json")
+            val current = if (file.isFile) JSONObject(file.readText()) else JSONObject()
+            val old = current.optJSONArray("providers") ?: org.json.JSONArray()
+            val next = org.json.JSONArray()
+            val name = "android-online-" + provider
+            val newEntry = JSONObject().apply {
+                put("name", name)
+                put("type", "api")
+                put("model", model)
+                put("url", baseUrl)
+                put("api_key", apiKey)
+                put("temperature", 0.4)
+            }
+            var inserted = false
+            for (index in 0 until old.length()) {
+                val item = old.optJSONObject(index) ?: continue
+                if (item.optString("name") == name) continue
+                if (!inserted && item.optString("name") == "android-local-llama") {
+                    next.put(newEntry)
+                    inserted = true
+                }
+                next.put(item)
+            }
+            if (!inserted) next.put(newEntry)
+            current.put("providers", next)
+            file.writeText(current.toString(2) + "\\n")
+            file.setReadable(false, false)
+            file.setWritable(false, false)
+            file.setReadable(true, true)
+            file.setWritable(true, true)
+            invoke.resolve(JSObject().apply {
+                put("saved", true)
+                put("provider", provider)
+                put("model", model)
+                put("message", "Provider saved in private app storage. Restart JARVIS to apply it.")
+            })
+        } catch (error: Throwable) {
+            invoke.resolve(JSObject().apply {
+                put("saved", false)
+                put("reason", error.message ?: error.javaClass.simpleName)
+            })
+        }
     }
 
     @Command
