@@ -80,32 +80,54 @@ def inspect_runtime() -> dict[str, object]:
     }
 
 
+def _write_backend_status(root: Path, state: str, **details: object) -> None:
+    import json
+    logs = root / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    target = logs / "backend-status.json"
+    temporary = target.with_suffix(".tmp")
+    payload = {"state": state, "updated_at": __import__("time").time(), **details}
+    temporary.write_text(json.dumps(payload, indent=2, default=str) + "\\n")
+    temporary.replace(target)
+
+
 def main() -> int:
     import json
     report = inspect_runtime()
+    root = Path(str(report["data_dir"]))
+    _write_backend_status(root, "preflight", report=report)
     print(json.dumps(report, indent=2))
     if not report["ready"]:
+        _write_backend_status(root, "not-ready", reason="Required Android runtime components are missing", report=report)
         print("JARVIS Android backend is NOT ready; refusing to start a partial daemon.")
         return 2
-    from sidecar_launcher import prepare_sidecars
-    prepare_sidecars(Path(report["data_dir"]))
-    from llm.bootstrap import start_local_llm
-    start_local_llm()
-    if callable(getattr(sys, "getandroidapilevel", None)):
-        os.environ["TTS_PROVIDER"] = "android"
-        os.environ["STT_PROVIDER"] = "android"
-        os.environ["ACTIVATION_PROVIDER"] = "android"
-        os.environ["OUTPUT_MODE"] = "voice"
-        import android_sounddevice
-        sys.modules["sounddevice"] = android_sounddevice
-    from android_daemon import start as start_gui_socket_client, stop as stop_gui_socket_client
-    start_gui_socket_client()
     try:
-        from jarvis.main import main as jarvis_main
-        jarvis_main()
-    finally:
-        stop_gui_socket_client()
-    return 0
+        _write_backend_status(root, "preparing-sidecars", report=report)
+        from sidecar_launcher import prepare_sidecars
+        prepare_sidecars(root)
+        _write_backend_status(root, "starting-local-model", report=report)
+        from llm.bootstrap import start_local_llm
+        start_local_llm()
+        if callable(getattr(sys, "getandroidapilevel", None)):
+            os.environ["TTS_PROVIDER"] = "android"
+            os.environ["STT_PROVIDER"] = "android"
+            os.environ["ACTIVATION_PROVIDER"] = "android"
+            os.environ["OUTPUT_MODE"] = "voice"
+            import android_sounddevice
+            sys.modules["sounddevice"] = android_sounddevice
+        _write_backend_status(root, "starting-jarvis-daemon", report=report)
+        from android_daemon import start as start_gui_socket_client, stop as stop_gui_socket_client
+        start_gui_socket_client()
+        try:
+            from jarvis.main import main as jarvis_main
+            jarvis_main()
+        finally:
+            stop_gui_socket_client()
+        _write_backend_status(root, "stopped", report=report)
+        return 0
+    except Exception as error:
+        _write_backend_status(root, "error", error_type=type(error).__name__, error=str(error), report=report)
+        raise
 
 
 if __name__ == "__main__":
