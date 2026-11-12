@@ -167,7 +167,7 @@
     setVoiceState("preparing", "Requesting microphone access and initializing native Android speech services.");
     micStatus.textContent = "Microphone: requesting permission";
     try {
-      await api("plugin:jarvis-voice|requestPermissions", {permissions:["recordAudio"]});
+      await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
       await api("plugin:jarvis-voice|initialize");
       micStatus.textContent = "Microphone: permission granted; native bridge initialized";
       setVoiceState("starting", "Starting the embedded JARVIS Python runtime and waiting for the real GUI socket handshake.");
@@ -224,7 +224,7 @@
       let result = await api("plugin:jarvis-voice|performPhoneAction", {action,target,value});
       if (result?.permissionRequired) {
         actionStatus.textContent = "Phone actions: camera permission required; requesting it now";
-        await api("plugin:jarvis-voice|requestPermissions", {permissions:["camera"]});
+        await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
         result = await api("plugin:jarvis-voice|performPhoneAction", {action,target,value});
       }
       actionStatus.textContent = "Phone actions: " + String(result?.message || "No result");
