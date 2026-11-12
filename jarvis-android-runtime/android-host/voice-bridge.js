@@ -124,8 +124,13 @@
       const response = await api("plugin:jarvis-voice|get_runtime_diagnostics");
       const data = JSON.parse(response?.diagnosticsJson || "{}");
       const model = data.localModelPresent ? "DOWNLOADED — local inference can work offline" : "NOT DOWNLOADED — internet required for first model download";
+      let backend = {};
+      try { backend = JSON.parse(data.backendStatus || "{}"); } catch (_) {}
       settingsStatus.textContent = [
         "Embedded Python: " + (data.pythonStarted ? "running" : "not started"),
+        "Backend startup stage: " + (backend.state || "not-started"),
+        "Backend error: " + (backend.error || backend.reason || "none recorded"),
+        "Online providers saved: " + (data.onlineProviderCount || 0),
         "Runtime binaries: " + (data.runtimeAssetsPresent ? "ready" : "missing / not installed"),
         "Local Qwen model: " + model,
         "Microphone permission: " + (data.microphonePermission ? "granted" : "not granted"),
@@ -211,7 +216,9 @@
     wasConnected = connected;
     daemonPill.className = "daemon-pill " + (connected ? "connected" : (connecting ? "connecting" : "offline"));
     daemonLabel.textContent = connected ? "RUNTIME CONNECTED" : (connecting ? "CONNECTING" : "RUNTIME OFFLINE");
-    runtimeStatus.textContent = "Runtime: " + (connected ? "GUI socket handshake confirmed (" + (status.runtime_state || "running") + ")" : (status?.last_error || status?.state || "offline"));
+    const backend = status?.backend || {};
+    const backendHint = backend.state ? " | backend " + backend.state + (backend.error || backend.reason ? ": " + (backend.error || backend.reason) : "") : "";
+    runtimeStatus.textContent = "Runtime: " + (connected ? "GUI socket handshake confirmed (" + (status.runtime_state || "running") + ")" : (status?.last_error || status?.state || "offline") + backendHint);
     listenButton.disabled = !connected || !initialized;
     if (connected && initialized) {
       startButton.disabled = true;
