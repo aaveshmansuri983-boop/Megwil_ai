@@ -1,4 +1,0 @@
-<resources>
-    <string name="app_name">MEGWIL AI</string>
-    <string name="accessibility_service_description">Accessibility features for Megwil AI, enabled only by the user in Android Settings.</string>
-</resources>
