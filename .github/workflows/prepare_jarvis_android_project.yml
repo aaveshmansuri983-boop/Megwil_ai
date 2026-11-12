@@ -205,6 +205,600 @@ jobs:
       - name: Test Android GUI socket handshake and native action parsing
         run: |
           python -m unittest discover -s jarvis-android-runtime/tests -p "test_android_bridge.py" -v
+      - name: Set monotonic Android versionCode for in-place updates
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+          run_number = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+          version_code = 100000 + run_number
+          pattern = re.compile(r"(?m)^(\\s*versionCode\\s*=\\s*)\\d+(\\s*)$")
+          if pattern.search(text):
+              text = pattern.sub(lambda m: m.group(1) + str(version_code) + m.group(2), text, count=1)
+          else:
+              app_id = re.search(r'(?m)^\\s*applicationId\\s*=\\s*"[^"]+"\\s*
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_REQUIREMENTS="$GITHUB_WORKSPACE/jarvis-android-runtime/requirements-android.txt"
+          test -s "$ANDROID_REQUIREMENTS"
+          # The generated Tauri project can contain more than one Python source-set
+          # requirements file. Ensure every Android build source set uses the
+          # pinned ARM64-compatible dependency list, not the desktop backend list.
+          mapfile -t REQUIREMENT_FILES < <(find "$PROJECT" -type f -path '*/src/main/python/requirements.txt' -print)
+          test "${#REQUIREMENT_FILES[@]}" -gt 0
+          for requirements_file in "${REQUIREMENT_FILES[@]}"; do
+            cp "$ANDROID_REQUIREMENTS" "$requirements_file"
+            echo "Applied Android requirements: $requirements_file"
+            grep -E '^(--extra-index-url|pydantic==|pydantic-core==)' "$requirements_file"
+          done
+      - name: Generate Tauri Gradle integration and check Rust Android host (yes APK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          IDENTIFIER="$(python -c 'import json; print(json.load(open("'"$PROJECT"'/src-tauri/tauri.conf.json"))["identifier"])')"
+          # Tauri sanitizes hyphens in the generated MainActivity package, but
+          # Wry receives this explicit package override. Apply the same safe
+          # Kotlin identifier to keep generated Wry sources in that namespace.
+          KOTLIN_PACKAGE="$(python - "$IDENTIFIER" <<'PY'
+          import re
+          import sys
+          parts = []
+          for segment in sys.argv[1].split("."):
+              part = re.sub(r"[^A-Za-z0-9_]", "_", segment)
+              if not part:
+                  part = "_"
+              if part[0].isdigit():
+                  part = "_" + part
+              parts.append(part)
+          package = ".".join(parts)
+          if len(parts) < 2 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+", package):
+              raise SystemExit(f"Invalid sanitized Kotlin package: {package}")
+          print(package)
+          PY
+          )"
+          PACKAGE_PATH="${KOTLIN_PACKAGE//./\/}"
+          PACKAGE_ROOT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH"
+          KOTLIN_OUT="$PACKAGE_ROOT/generated"
+          mkdir -p "$KOTLIN_OUT"
+          export TAURI_ANDROID_PROJECT_PATH="$PROJECT/src-tauri/gen/android"
+          export TAURI_ANDROID_PACKAGE_UNESCAPED="$KOTLIN_PACKAGE"
+          export WRY_ANDROID_PACKAGE="$KOTLIN_PACKAGE"
+          export WRY_ANDROID_KOTLIN_FILES_OUT_DIR="$KOTLIN_OUT"
+          export WRY_ANDROID_LIBRARY="$(python - "$PROJECT/src-tauri/Cargo.toml" <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+          manifest = tomllib.loads(Path(sys.argv[1]).read_text())
+          library = manifest.get("lib", {}).get("name")
+          if not library:
+              library = manifest["package"]["name"].replace("-", "_")
+          print(library)
+          PY
+          )"
+          test -n "$WRY_ANDROID_LIBRARY"
+          echo "Using WRY Android library: $WRY_ANDROID_LIBRARY"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES"
+          export TAURI_ENV_PLATFORM=android
+          cd "$PROJECT/src-tauri"
+          cargo check --target aarch64-linux-android
+          test -s "$TAURI_ANDROID_PROJECT_PATH/tauri.settings.gradle"
+          test -s "$TAURI_ANDROID_PROJECT_PATH/app/tauri.build.gradle.kts"
+          MAIN_ACTIVITY="$(find "$TAURI_ANDROID_PROJECT_PATH/app/src/main/java" -name MainActivity.kt -print -quit)"
+          test -n "$MAIN_ACTIVITY"
+          MAIN_PACKAGE="$(sed -n 's/^package[[:space:]]\+//p' "$MAIN_ACTIVITY" | head -n 1)"
+          test "$MAIN_PACKAGE" = "$KOTLIN_PACKAGE"
+          grep -R --include='*.kt' -q "^package $KOTLIN_PACKAGE$" "$KOTLIN_OUT"
+          # Tauri init leaves framework Kotlin stubs in the package root while
+          # Wry regenerates the same classes under generated/. Kotlin compiles
+          # both recursively, causing Redeclaration errors. Keep the generated
+          # Wry implementation and remove only same-named root duplicates.
+          python - "$PACKAGE_ROOT" <<'PY'
+          import sys
+          from pathlib import Path
+          package_root = Path(sys.argv[1])
+          generated = package_root / "generated"
+          if not generated.is_dir():
+              raise SystemExit(f"Expected Wry generated Kotlin directory missing: {generated}")
+          removed = []
+          for generated_file in generated.glob("*.kt"):
+              root_file = package_root / generated_file.name
+              if root_file.is_file():
+                  root_file.unlink()
+                  removed.append(root_file.name)
+          if removed:
+              print("Removed duplicate Tauri Kotlin stubs from package root:", ", ".join(sorted(removed)))
+          else:
+              # Some Tauri/Wry versions emit framework classes only under
+              # generated/. No root duplicates means there is nothing to remove.
+              print("No root Kotlin duplicates present; generated Wry sources are retained.")
+          PY
+          if grep -R --include='*.kt' -nE '^package[[:space:]].*-' "$KOTLIN_OUT"; then
+            echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
+            exit 1
+          fi
+      - name: Collect OAuth package and stable signing prerequisites
+        id: oauth
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        env:
+          JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID || secrets.GOOGLE_WEB_CLIENT_ID }}
+          JARVIS_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_ANDROID_CLIENT_ID || secrets.GOOGLE_ANDROID_CLIENT_ID }}
+          JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
+          JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD || secrets.PASSWORD || secrets.password }}
+          JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD || secrets.PASSWORD || secrets.password }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_ID="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("app/build.gradle.kts").read_text()
+          match = re.search(r'applicationId\s*=\s*"([^"]+)"', text)
+          if not match:
+              match = re.search(r'applicationId\s+"([^"]+)"', text)
+          if not match:
+              raise SystemExit("Android applicationId not found")
+          print(match.group(1))
+          PY
+          )"
+          ./gradlew signingReport --no-daemon > "$RUNNER_TEMP/signing-report.txt"
+          DEBUG_SHA1="$(awk '/Variant: debug/{debug=1} debug && /SHA1:/{print $2; exit}' "$RUNNER_TEMP/signing-report.txt" | tr -d ':')"
+          export JARVIS_ANDROID_APPLICATION_ID="$APP_ID"
+          python "$GITHUB_WORKSPACE/jarvis-android-runtime/oauth_check.py" > "$RUNNER_TEMP/oauth-preflight.json"
+
+          KEYSTORE_READY=false
+          KEYSTORE_PATH="$RUNNER_TEMP/jarvis-release.keystore"
+          if [[ -n "$JARVIS_ANDROID_KEYSTORE_BASE64" && -n "$JARVIS_ANDROID_KEYSTORE_PASSWORD" &&
+                -n "$JARVIS_ANDROID_KEY_ALIAS" && -n "$JARVIS_ANDROID_KEY_PASSWORD" &&
+                -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ]]; then
+            if printf '%s' "$JARVIS_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH" &&
+               keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$JARVIS_ANDROID_KEYSTORE_PASSWORD" \
+                 -alias "$JARVIS_ANDROID_KEY_ALIAS" > "$RUNNER_TEMP/release-keystore-info.txt" 2>/dev/null; then
+              ACTUAL_SHA1="$(awk '/SHA1:/{gsub(":", "", $2); print toupper($2); exit}' "$RUNNER_TEMP/release-keystore-info.txt")"
+              EXPECTED_SHA1="$(printf '%s' "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+              if [[ -n "$ACTUAL_SHA1" && "$ACTUAL_SHA1" == "$EXPECTED_SHA1" ]]; then
+                KEYSTORE_READY=true
+                chmod 600 "$KEYSTORE_PATH"
+                echo "JARVIS_SIGNING_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+              fi
+            fi
+          fi
+
+          OAUTH_READY="$(python -c 'import json,sys; print("true" if json.load(open(sys.argv[1])).get("ready") else "false")' "$RUNNER_TEMP/oauth-preflight.json")"
+          ALL_READY=false
+          if [[ "$OAUTH_READY" == "true" && "$KEYSTORE_READY" == "true" ]]; then ALL_READY=true; fi
+          echo "ready=$ALL_READY" >> "$GITHUB_OUTPUT"
+          echo "keystore_ready=$KEYSTORE_READY" >> "$GITHUB_OUTPUT"
+
+          WEB_READY="$([ -n "$JARVIS_GOOGLE_WEB_CLIENT_ID" ] && echo yes || echo no)"
+          ANDROID_READY="$([ -n "$JARVIS_GOOGLE_ANDROID_CLIENT_ID" ] && echo yes || echo no)"
+          SHA_READY="$([ -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ] && echo yes || echo no)"
+          KEYSTORE_SECRET_READY="$([ -n "$JARVIS_ANDROID_KEYSTORE_BASE64" ] && echo yes || echo no)"
+          PASSWORDS_READY="$([ -n "$JARVIS_ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$JARVIS_ANDROID_KEY_PASSWORD" ] && echo yes || echo no)"
+          ALIAS_READY="$([ -n "$JARVIS_ANDROID_KEY_ALIAS" ] && echo yes || echo no)"
+          echo "Android application ID: $APP_ID"
+          echo "Temporary CI debug SHA-1 present: $([ -n "$DEBUG_SHA1" ] && echo yes || echo no)"
+          echo "Web OAuth client ID configured: $WEB_READY"
+          echo "Android OAuth client ID configured: $ANDROID_READY"
+          echo "Stable signing SHA-1 configured: $SHA_READY"
+          echo "Release keystore configured: $KEYSTORE_SECRET_READY"
+          echo "Release keystore passwords configured: $PASSWORDS_READY"
+          echo "Release keystore alias configured: $ALIAS_READY"
+          echo "Release keystore matches stable SHA-1: $KEYSTORE_READY"
+          {
+            echo "### OAuth and signing preflight (secret values are never printed)"
+            echo "- Android application ID: $APP_ID"
+            echo "- Web OAuth client ID configured: $WEB_READY"
+            echo "- Android OAuth client ID configured: $ANDROID_READY"
+            echo "- Stable signing SHA-1 configured: $SHA_READY"
+            echo "- Release keystore configured: $KEYSTORE_SECRET_READY"
+            echo "- Release keystore passwords configured: $PASSWORDS_READY"
+            echo "- Release keystore alias configured: $ALIAS_READY"
+            echo "- Release keystore certificate matches configured SHA-1: $KEYSTORE_READY"
+            echo "- Final APK prerequisites ready: **$ALL_READY**"
+            if [[ "$ALL_READY" != "true" ]]; then
+              echo "- APK build is held. Configure the missing user-owned GitHub Actions secrets: JARVIS_GOOGLE_ANDROID_CLIENT_ID, JARVIS_ANDROID_STABLE_SIGNING_SHA1, JARVIS_ANDROID_KEYSTORE_BASE64, JARVIS_ANDROID_KEYSTORE_PASSWORD, JARVIS_ANDROID_KEY_ALIAS, JARVIS_ANDROID_KEY_PASSWORD. Also ensure JARVIS_GOOGLE_WEB_CLIENT_ID (or GOOGLE_WEB_CLIENT_ID) is configured."
+              echo "- Register the exact Android application ID above and the matching stable signing SHA-1 in the user's Google Cloud Android OAuth client."
+            fi
+            cat "$RUNNER_TEMP/oauth-preflight.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify Python package compatibility (no APK)
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        run: |
+          ./gradlew :app:generateArm64DebugPythonRequirementsAssets :app:generateUniversalDebugPythonRequirementsAssets --no-daemon
+      - name: Compile native Android voice bridge (no APK)
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        run: |
+          ./gradlew :app:compileArm64DebugKotlin :app:compileUniversalDebugKotlin --no-daemon
+      - name: Hold APK build until OAuth and stable signing are configured
+        if: steps.oauth.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "APK build held: required Google OAuth and stable release-signing prerequisites are not all configured."
+          echo "No APK will be compiled, signed, or uploaded in this run."
+      - name: Build JARVIS V3 Android ARM64 APK
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        working-directory: ${{ steps.source.outputs.project }}
+        timeout-minutes: 60
+        env:
+          CI: "true"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+        run: cargo tauri android build --apk --target aarch64 --ci
+      - name: Sign and verify installable APK
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        working-directory: ${{ steps.source.outputs.project }}
+        env:
+          JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD || secrets.PASSWORD || secrets.password }}
+          JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD || secrets.PASSWORD || secrets.password }}
+          JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find src-tauri/gen/android -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          printf '%s' "$JARVIS_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-release.keystore"
+          chmod 600 "$RUNNER_TEMP/jarvis-release.keystore"
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/jarvis-release.keystore" \
+            --ks-key-alias "$JARVIS_ANDROID_KEY_ALIAS" --ks-pass env:JARVIS_ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:JARVIS_ANDROID_KEY_PASSWORD "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          keytool -printcert -jarfile "$APK" > "$RUNNER_TEMP/jarvis-apk-certificate.txt"
+          ACTUAL_SHA1="$(awk '/SHA1:/{gsub(":", "", $2); print toupper($2); exit}' "$RUNNER_TEMP/jarvis-apk-certificate.txt")"
+          EXPECTED_SHA1="$(printf '%s' "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test -n "$ACTUAL_SHA1" && test "$ACTUAL_SHA1" = "$EXPECTED_SHA1"
+          echo "APK_SIGNING_SHA1=$ACTUAL_SHA1" >> "$GITHUB_ENV"
+      - name: Package and upload direct APK artifact
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        working-directory: ${{ steps.source.outputs.project }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          APK="$(find src-tauri/gen/android -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/JARVIS-V3-Android-arm64.apk"
+          (cd "$GITHUB_WORKSPACE/dist" && sha256sum JARVIS-V3-Android-arm64.apk > SHA256SUMS.txt)
+          {
+            echo "## Installable JARVIS V3 Android APK"
+            echo "- ABI: ARM64 (arm64-v8a)"
+            echo "- Signing: user-owned release keystore, verified against the configured stable SHA-1"
+            echo "- APK SHA-1: $APK_SIGNING_SHA1"
+            echo "- Google Android OAuth client: verified by the preflight before this step can run"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload JARVIS V3 Android APK
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-V3-Android-APK
+          path: |
+            dist/JARVIS-V3-Android-arm64.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Record Android build result
+        if: always()
+        run: |
+          {
+            echo "## JARVIS Android preparation"
+            echo "- APK build: conditional on OAuth and stable signing prerequisites"
+            echo "- LLM workflow run: $LLM_RUN"
+            echo "- Sidecar workflow run: $SIDECAR_RUN"
+            echo "- Python backend artifact run: $BACKEND_RUN"
+            echo "- Checks attempted: Chaquopy Python dependencies, Kotlin native voice bridge, Rust Android host."
+            echo "- MEGWIL and desktop JARVIS source were not modified."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+# Re-run Android validation after bundle identifier regex correction.
+, text)
+              if not app_id:
+                  raise SystemExit("Cannot safely set Android versionCode: applicationId line not found")
+              end = text.find("\\n", app_id.end())
+              if end < 0: end = len(text)
+              text = text[:end + 1] + f"        versionCode = {version_code}\\n" + text[end + 1:]
+          text = re.sub(r'(?m)^(\\s*versionName\\s*=\\s*)"[^"]*"\\s*
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_REQUIREMENTS="$GITHUB_WORKSPACE/jarvis-android-runtime/requirements-android.txt"
+          test -s "$ANDROID_REQUIREMENTS"
+          # The generated Tauri project can contain more than one Python source-set
+          # requirements file. Ensure every Android build source set uses the
+          # pinned ARM64-compatible dependency list, not the desktop backend list.
+          mapfile -t REQUIREMENT_FILES < <(find "$PROJECT" -type f -path '*/src/main/python/requirements.txt' -print)
+          test "${#REQUIREMENT_FILES[@]}" -gt 0
+          for requirements_file in "${REQUIREMENT_FILES[@]}"; do
+            cp "$ANDROID_REQUIREMENTS" "$requirements_file"
+            echo "Applied Android requirements: $requirements_file"
+            grep -E '^(--extra-index-url|pydantic==|pydantic-core==)' "$requirements_file"
+          done
+      - name: Generate Tauri Gradle integration and check Rust Android host (yes APK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          IDENTIFIER="$(python -c 'import json; print(json.load(open("'"$PROJECT"'/src-tauri/tauri.conf.json"))["identifier"])')"
+          # Tauri sanitizes hyphens in the generated MainActivity package, but
+          # Wry receives this explicit package override. Apply the same safe
+          # Kotlin identifier to keep generated Wry sources in that namespace.
+          KOTLIN_PACKAGE="$(python - "$IDENTIFIER" <<'PY'
+          import re
+          import sys
+          parts = []
+          for segment in sys.argv[1].split("."):
+              part = re.sub(r"[^A-Za-z0-9_]", "_", segment)
+              if not part:
+                  part = "_"
+              if part[0].isdigit():
+                  part = "_" + part
+              parts.append(part)
+          package = ".".join(parts)
+          if len(parts) < 2 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+", package):
+              raise SystemExit(f"Invalid sanitized Kotlin package: {package}")
+          print(package)
+          PY
+          )"
+          PACKAGE_PATH="${KOTLIN_PACKAGE//./\/}"
+          PACKAGE_ROOT="$PROJECT/src-tauri/gen/android/app/src/main/java/$PACKAGE_PATH"
+          KOTLIN_OUT="$PACKAGE_ROOT/generated"
+          mkdir -p "$KOTLIN_OUT"
+          export TAURI_ANDROID_PROJECT_PATH="$PROJECT/src-tauri/gen/android"
+          export TAURI_ANDROID_PACKAGE_UNESCAPED="$KOTLIN_PACKAGE"
+          export WRY_ANDROID_PACKAGE="$KOTLIN_PACKAGE"
+          export WRY_ANDROID_KOTLIN_FILES_OUT_DIR="$KOTLIN_OUT"
+          export WRY_ANDROID_LIBRARY="$(python - "$PROJECT/src-tauri/Cargo.toml" <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+          manifest = tomllib.loads(Path(sys.argv[1]).read_text())
+          library = manifest.get("lib", {}).get("name")
+          if not library:
+              library = manifest["package"]["name"].replace("-", "_")
+          print(library)
+          PY
+          )"
+          test -n "$WRY_ANDROID_LIBRARY"
+          echo "Using WRY Android library: $WRY_ANDROID_LIBRARY"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES"
+          export TAURI_ENV_PLATFORM=android
+          cd "$PROJECT/src-tauri"
+          cargo check --target aarch64-linux-android
+          test -s "$TAURI_ANDROID_PROJECT_PATH/tauri.settings.gradle"
+          test -s "$TAURI_ANDROID_PROJECT_PATH/app/tauri.build.gradle.kts"
+          MAIN_ACTIVITY="$(find "$TAURI_ANDROID_PROJECT_PATH/app/src/main/java" -name MainActivity.kt -print -quit)"
+          test -n "$MAIN_ACTIVITY"
+          MAIN_PACKAGE="$(sed -n 's/^package[[:space:]]\+//p' "$MAIN_ACTIVITY" | head -n 1)"
+          test "$MAIN_PACKAGE" = "$KOTLIN_PACKAGE"
+          grep -R --include='*.kt' -q "^package $KOTLIN_PACKAGE$" "$KOTLIN_OUT"
+          # Tauri init leaves framework Kotlin stubs in the package root while
+          # Wry regenerates the same classes under generated/. Kotlin compiles
+          # both recursively, causing Redeclaration errors. Keep the generated
+          # Wry implementation and remove only same-named root duplicates.
+          python - "$PACKAGE_ROOT" <<'PY'
+          import sys
+          from pathlib import Path
+          package_root = Path(sys.argv[1])
+          generated = package_root / "generated"
+          if not generated.is_dir():
+              raise SystemExit(f"Expected Wry generated Kotlin directory missing: {generated}")
+          removed = []
+          for generated_file in generated.glob("*.kt"):
+              root_file = package_root / generated_file.name
+              if root_file.is_file():
+                  root_file.unlink()
+                  removed.append(root_file.name)
+          if removed:
+              print("Removed duplicate Tauri Kotlin stubs from package root:", ", ".join(sorted(removed)))
+          else:
+              # Some Tauri/Wry versions emit framework classes only under
+              # generated/. No root duplicates means there is nothing to remove.
+              print("No root Kotlin duplicates present; generated Wry sources are retained.")
+          PY
+          if grep -R --include='*.kt' -nE '^package[[:space:]].*-' "$KOTLIN_OUT"; then
+            echo "::error::Generated Wry Kotlin package contains an invalid hyphen"
+            exit 1
+          fi
+      - name: Collect OAuth package and stable signing prerequisites
+        id: oauth
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        env:
+          JARVIS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_WEB_CLIENT_ID || secrets.GOOGLE_WEB_CLIENT_ID }}
+          JARVIS_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.JARVIS_GOOGLE_ANDROID_CLIENT_ID || secrets.GOOGLE_ANDROID_CLIENT_ID }}
+          JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
+          JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD || secrets.PASSWORD || secrets.password }}
+          JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD || secrets.PASSWORD || secrets.password }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_ID="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("app/build.gradle.kts").read_text()
+          match = re.search(r'applicationId\s*=\s*"([^"]+)"', text)
+          if not match:
+              match = re.search(r'applicationId\s+"([^"]+)"', text)
+          if not match:
+              raise SystemExit("Android applicationId not found")
+          print(match.group(1))
+          PY
+          )"
+          ./gradlew signingReport --no-daemon > "$RUNNER_TEMP/signing-report.txt"
+          DEBUG_SHA1="$(awk '/Variant: debug/{debug=1} debug && /SHA1:/{print $2; exit}' "$RUNNER_TEMP/signing-report.txt" | tr -d ':')"
+          export JARVIS_ANDROID_APPLICATION_ID="$APP_ID"
+          python "$GITHUB_WORKSPACE/jarvis-android-runtime/oauth_check.py" > "$RUNNER_TEMP/oauth-preflight.json"
+
+          KEYSTORE_READY=false
+          KEYSTORE_PATH="$RUNNER_TEMP/jarvis-release.keystore"
+          if [[ -n "$JARVIS_ANDROID_KEYSTORE_BASE64" && -n "$JARVIS_ANDROID_KEYSTORE_PASSWORD" &&
+                -n "$JARVIS_ANDROID_KEY_ALIAS" && -n "$JARVIS_ANDROID_KEY_PASSWORD" &&
+                -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ]]; then
+            if printf '%s' "$JARVIS_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH" &&
+               keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$JARVIS_ANDROID_KEYSTORE_PASSWORD" \
+                 -alias "$JARVIS_ANDROID_KEY_ALIAS" > "$RUNNER_TEMP/release-keystore-info.txt" 2>/dev/null; then
+              ACTUAL_SHA1="$(awk '/SHA1:/{gsub(":", "", $2); print toupper($2); exit}' "$RUNNER_TEMP/release-keystore-info.txt")"
+              EXPECTED_SHA1="$(printf '%s' "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+              if [[ -n "$ACTUAL_SHA1" && "$ACTUAL_SHA1" == "$EXPECTED_SHA1" ]]; then
+                KEYSTORE_READY=true
+                chmod 600 "$KEYSTORE_PATH"
+                echo "JARVIS_SIGNING_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+              fi
+            fi
+          fi
+
+          OAUTH_READY="$(python -c 'import json,sys; print("true" if json.load(open(sys.argv[1])).get("ready") else "false")' "$RUNNER_TEMP/oauth-preflight.json")"
+          ALL_READY=false
+          if [[ "$OAUTH_READY" == "true" && "$KEYSTORE_READY" == "true" ]]; then ALL_READY=true; fi
+          echo "ready=$ALL_READY" >> "$GITHUB_OUTPUT"
+          echo "keystore_ready=$KEYSTORE_READY" >> "$GITHUB_OUTPUT"
+
+          WEB_READY="$([ -n "$JARVIS_GOOGLE_WEB_CLIENT_ID" ] && echo yes || echo no)"
+          ANDROID_READY="$([ -n "$JARVIS_GOOGLE_ANDROID_CLIENT_ID" ] && echo yes || echo no)"
+          SHA_READY="$([ -n "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" ] && echo yes || echo no)"
+          KEYSTORE_SECRET_READY="$([ -n "$JARVIS_ANDROID_KEYSTORE_BASE64" ] && echo yes || echo no)"
+          PASSWORDS_READY="$([ -n "$JARVIS_ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$JARVIS_ANDROID_KEY_PASSWORD" ] && echo yes || echo no)"
+          ALIAS_READY="$([ -n "$JARVIS_ANDROID_KEY_ALIAS" ] && echo yes || echo no)"
+          echo "Android application ID: $APP_ID"
+          echo "Temporary CI debug SHA-1 present: $([ -n "$DEBUG_SHA1" ] && echo yes || echo no)"
+          echo "Web OAuth client ID configured: $WEB_READY"
+          echo "Android OAuth client ID configured: $ANDROID_READY"
+          echo "Stable signing SHA-1 configured: $SHA_READY"
+          echo "Release keystore configured: $KEYSTORE_SECRET_READY"
+          echo "Release keystore passwords configured: $PASSWORDS_READY"
+          echo "Release keystore alias configured: $ALIAS_READY"
+          echo "Release keystore matches stable SHA-1: $KEYSTORE_READY"
+          {
+            echo "### OAuth and signing preflight (secret values are never printed)"
+            echo "- Android application ID: $APP_ID"
+            echo "- Web OAuth client ID configured: $WEB_READY"
+            echo "- Android OAuth client ID configured: $ANDROID_READY"
+            echo "- Stable signing SHA-1 configured: $SHA_READY"
+            echo "- Release keystore configured: $KEYSTORE_SECRET_READY"
+            echo "- Release keystore passwords configured: $PASSWORDS_READY"
+            echo "- Release keystore alias configured: $ALIAS_READY"
+            echo "- Release keystore certificate matches configured SHA-1: $KEYSTORE_READY"
+            echo "- Final APK prerequisites ready: **$ALL_READY**"
+            if [[ "$ALL_READY" != "true" ]]; then
+              echo "- APK build is held. Configure the missing user-owned GitHub Actions secrets: JARVIS_GOOGLE_ANDROID_CLIENT_ID, JARVIS_ANDROID_STABLE_SIGNING_SHA1, JARVIS_ANDROID_KEYSTORE_BASE64, JARVIS_ANDROID_KEYSTORE_PASSWORD, JARVIS_ANDROID_KEY_ALIAS, JARVIS_ANDROID_KEY_PASSWORD. Also ensure JARVIS_GOOGLE_WEB_CLIENT_ID (or GOOGLE_WEB_CLIENT_ID) is configured."
+              echo "- Register the exact Android application ID above and the matching stable signing SHA-1 in the user's Google Cloud Android OAuth client."
+            fi
+            cat "$RUNNER_TEMP/oauth-preflight.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify Python package compatibility (no APK)
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        run: |
+          ./gradlew :app:generateArm64DebugPythonRequirementsAssets :app:generateUniversalDebugPythonRequirementsAssets --no-daemon
+      - name: Compile native Android voice bridge (no APK)
+        working-directory: ${{ steps.source.outputs.project }}/src-tauri/gen/android
+        run: |
+          ./gradlew :app:compileArm64DebugKotlin :app:compileUniversalDebugKotlin --no-daemon
+      - name: Hold APK build until OAuth and stable signing are configured
+        if: steps.oauth.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "APK build held: required Google OAuth and stable release-signing prerequisites are not all configured."
+          echo "No APK will be compiled, signed, or uploaded in this run."
+      - name: Build JARVIS V3 Android ARM64 APK
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        working-directory: ${{ steps.source.outputs.project }}
+        timeout-minutes: 60
+        env:
+          CI: "true"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+        run: cargo tauri android build --apk --target aarch64 --ci
+      - name: Sign and verify installable APK
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        working-directory: ${{ steps.source.outputs.project }}
+        env:
+          JARVIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.JARVIS_ANDROID_KEYSTORE_BASE64 }}
+          JARVIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEYSTORE_PASSWORD || secrets.PASSWORD || secrets.password }}
+          JARVIS_ANDROID_KEY_ALIAS: ${{ secrets.JARVIS_ANDROID_KEY_ALIAS }}
+          JARVIS_ANDROID_KEY_PASSWORD: ${{ secrets.JARVIS_ANDROID_KEY_PASSWORD || secrets.PASSWORD || secrets.password }}
+          JARVIS_ANDROID_STABLE_SIGNING_SHA1: ${{ secrets.JARVIS_ANDROID_STABLE_SIGNING_SHA1 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find src-tauri/gen/android -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/apksigner"
+          printf '%s' "$JARVIS_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-release.keystore"
+          chmod 600 "$RUNNER_TEMP/jarvis-release.keystore"
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/jarvis-release.keystore" \
+            --ks-key-alias "$JARVIS_ANDROID_KEY_ALIAS" --ks-pass env:JARVIS_ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:JARVIS_ANDROID_KEY_PASSWORD "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          keytool -printcert -jarfile "$APK" > "$RUNNER_TEMP/jarvis-apk-certificate.txt"
+          ACTUAL_SHA1="$(awk '/SHA1:/{gsub(":", "", $2); print toupper($2); exit}' "$RUNNER_TEMP/jarvis-apk-certificate.txt")"
+          EXPECTED_SHA1="$(printf '%s' "$JARVIS_ANDROID_STABLE_SIGNING_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test -n "$ACTUAL_SHA1" && test "$ACTUAL_SHA1" = "$EXPECTED_SHA1"
+          echo "APK_SIGNING_SHA1=$ACTUAL_SHA1" >> "$GITHUB_ENV"
+      - name: Package and upload direct APK artifact
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        working-directory: ${{ steps.source.outputs.project }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          APK="$(find src-tauri/gen/android -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/JARVIS-V3-Android-arm64.apk"
+          (cd "$GITHUB_WORKSPACE/dist" && sha256sum JARVIS-V3-Android-arm64.apk > SHA256SUMS.txt)
+          {
+            echo "## Installable JARVIS V3 Android APK"
+            echo "- ABI: ARM64 (arm64-v8a)"
+            echo "- Signing: user-owned release keystore, verified against the configured stable SHA-1"
+            echo "- APK SHA-1: $APK_SIGNING_SHA1"
+            echo "- Google Android OAuth client: verified by the preflight before this step can run"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload JARVIS V3 Android APK
+        if: steps.oauth.outputs.ready == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_apk == true))
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-V3-Android-APK
+          path: |
+            dist/JARVIS-V3-Android-arm64.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Record Android build result
+        if: always()
+        run: |
+          {
+            echo "## JARVIS Android preparation"
+            echo "- APK build: conditional on OAuth and stable signing prerequisites"
+            echo "- LLM workflow run: $LLM_RUN"
+            echo "- Sidecar workflow run: $SIDECAR_RUN"
+            echo "- Python backend artifact run: $BACKEND_RUN"
+            echo "- Checks attempted: Chaquopy Python dependencies, Kotlin native voice bridge, Rust Android host."
+            echo "- MEGWIL and desktop JARVIS source were not modified."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+# Re-run Android validation after bundle identifier regex correction.
+, lambda m: m.group(1) + f'"3.0.{run_number}"', text, count=1)
+          path.write_text(text)
+          print(f"Android package versionCode set to {version_code}; versionName 3.0.{run_number}")
+          PY
       - name: Enforce Android-specific Python requirements in generated project
         shell: bash
         run: |
