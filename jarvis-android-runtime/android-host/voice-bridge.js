@@ -132,7 +132,7 @@
         "Android speech service: " + (data.speechServiceAvailable ? "available (offline language pack depends on Android speech settings)" : "unavailable — text commands still work"),
         "Text-to-Speech: " + (data.textToSpeechReady ? "ready" : "initializing / unavailable"),
         "App-private runtime: " + (data.runtimeDirectory || "not created")
-      ].join("\\n");
+      ].join("\n");
     } catch (error) {
       settingsStatus.textContent = "Settings diagnostics unavailable: " + String(error?.message || error);
     }
@@ -149,10 +149,10 @@
       const result = await api("plugin:jarvis-voice|listenOnce");
       if (!result?.started) throw new Error(result?.reason || "Android speech service unavailable. Install an offline language pack in Android speech settings.");
       micStatus.textContent = "Microphone: voice recognition started";
-      settingsStatus.textContent += "\\n\\nVoice recognition: listening. Offline recognition depends on the Android speech engine and installed language pack.";
+      settingsStatus.textContent += "\n\nVoice recognition: listening. Offline recognition depends on the Android speech engine and installed language pack.";
     } catch (error) {
       micStatus.textContent = "Microphone: unavailable";
-      settingsStatus.textContent += "\\n\\nVoice setup: " + String(error?.message || error);
+      settingsStatus.textContent += "\n\nVoice setup: " + String(error?.message || error);
     } finally {
       button.disabled = false;
     }
