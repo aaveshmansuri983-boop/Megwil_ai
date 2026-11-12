@@ -328,7 +328,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             }
             if (!inserted) next.put(newEntry)
             current.put("providers", next)
-            file.writeText(current.toString(2) + "\\n")
+            file.writeText(current.toString(2) + "\n")
             file.setReadable(false, false)
             file.setWritable(false, false)
             file.setReadable(true, true)
