@@ -3,6 +3,7 @@ import queue
 import socket
 import sys
 import tempfile
+from unittest.mock import patch
 import threading
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ if str(RUNTIME) not in sys.path:
 
 from android_daemon import AndroidGuiSocketClient
 from android_actions import parse_voice_command
+from llm.bootstrap import configure_provider
 
 
 class FakeGuiSocket:
@@ -107,6 +109,38 @@ class AndroidBridgeTests(unittest.TestCase):
         self.assertEqual(parse_voice_command("turn on flashlight"), {"action": "flashlight", "value": "on"})
         self.assertEqual(parse_voice_command("set volume to 55%"), {"action": "volume", "value": "55"})
         self.assertIsNone(parse_voice_command("call me when you arrive"))
+
+
+    def test_hybrid_provider_pool_uses_cloud_first_and_local_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp)
+            (config / "providers.json").write_text(json.dumps({
+                "providers": [
+                    {"name": "android-online-groq", "type": "api",
+                     "url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile",
+                     "api_key": "test-secret"},
+                    {"name": "android-local-llama", "type": "api",
+                     "url": "http://127.0.0.1:8080/v1", "model": "local-old"}
+                ]
+            }))
+            with patch.dict("os.environ", {"JARVIS_CONFIG_DIR": str(config)}):
+                configure_provider()
+            providers = json.loads((config / "providers.json").read_text())["providers"]
+            self.assertEqual(providers[0]["name"], "android-online-groq")
+            self.assertEqual(providers[-1]["name"], "android-local-llama")
+            self.assertEqual(providers[-1]["model"], "local-qwen2.5-0.5b")
+            self.assertEqual(providers[0]["api_key"], "test-secret")
+
+    def test_hybrid_provider_pool_is_offline_only_without_cloud_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp)
+            with patch.dict("os.environ", {"JARVIS_CONFIG_DIR": str(config)}):
+                configure_provider()
+            providers = json.loads((config / "providers.json").read_text())["providers"]
+            self.assertEqual(len(providers), 1)
+            self.assertEqual(providers[0]["name"], "android-local-llama")
+            self.assertEqual(providers[0]["url"], "http://127.0.0.1:8080/v1")
+
 
 
 if __name__ == "__main__":
