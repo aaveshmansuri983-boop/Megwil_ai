@@ -49,6 +49,7 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
                     return None
 
             index_bytes = read_source("src/index.html")
+            main_bytes = read_source("src/main.js")
             styles_bytes = read_source("src/styles.css")
             cargo_bytes = read_source("src-tauri/Cargo.toml")
             lib_bytes = read_source("src-tauri/src/lib.rs")
@@ -57,6 +58,7 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
             orb_bytes = read_source("src/assets/jarvis-orb-selected.jpg")
 
             index = index_bytes.decode("utf-8", "replace") if index_bytes else ""
+            main = main_bytes.decode("utf-8", "replace") if main_bytes else ""
             styles = styles_bytes.decode("utf-8", "replace") if styles_bytes else ""
             cargo = cargo_bytes.decode("utf-8", "replace") if cargo_bytes else ""
             lib = lib_bytes.decode("utf-8", "replace") if lib_bytes else ""
@@ -64,7 +66,8 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
             config = config_bytes.decode("utf-8", "replace") if config_bytes else ""
 
             orb_hash = hashlib.sha256(orb_bytes).hexdigest() if orb_bytes else None
-            orb_referenced = "assets/jarvis-orb-selected.jpg" in index
+            home_screen_present = 'id="empty-state"' in index and 'id="chat-view"' in index
+            orb_referenced = "assets/jarvis-orb-selected.jpg" in index and home_screen_present
             image_rule_match = re.search(
                 r"\.empty-logo\s+img\s*\{([^}]*)\}", styles, re.IGNORECASE | re.DOTALL
             )
@@ -79,6 +82,7 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
             orb_css_ok = bool(
                 image_rule_match
                 and "object-fit: contain" in image_rule
+                and "border-radius: 0" in image_rule
                 and filter_ok
                 and "mix-blend-mode" not in image_rule
                 and "mask" not in image_rule
@@ -93,6 +97,7 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
                 "present": orb_bytes is not None,
                 "sha256": orb_hash,
                 "matches_original": orb_hash == ORIGINAL_ORB_SHA256,
+                "home_screen_present": home_screen_present,
                 "referenced_by_home_screen": orb_referenced,
                 "css_preserves_artwork": orb_css_ok,
             }
@@ -144,8 +149,16 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
             setup,
         )
     )
+    provider_ui_ready = (
+        'value="freellmapi"' in index
+        and "providerFormType.addEventListener(\'change\'" in main
+        and "providerFormModel.value = \'auto\'" in main
+        and "android-online-freellmapi" in main
+        and "http://127.0.0.1:3001/v1" in main
+    )
     provider_ready = (
-        'value="freellmapi"' in bridge
+        provider_ui_ready
+        and 'value="freellmapi"' in bridge
         and "http://127.0.0.1:3001/v1" in bridge
         and 'model:"auto"' in bridge
         and "npm run dev" in setup
@@ -153,15 +166,16 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
         and "http://127.0.0.1:3001/v1" in setup
     )
     checks["freellmapi"] = {
-        "provider_option": 'value="freellmapi"' in bridge,
+        "base_provider_ui": provider_ui_ready,
+        "android_provider_option": 'value="freellmapi"' in bridge,
         "loopback_api_url": "http://127.0.0.1:3001/v1" in bridge,
         "automatic_model": 'model:"auto"' in bridge,
         "termux_setup_documented": bool(setup and "npm run dev" in setup and termux_clone_documented),
     }
     if not provider_ready:
         missing.append(
-            "FreeLLMAPI gate failed: Android provider settings and Termux gateway "
-            "configuration must include model auto and http://127.0.0.1:3001/v1."
+            "FreeLLMAPI gate failed: the JARVIS provider settings, Android provider overlay, "
+            "and Termux gateway configuration must include model auto and http://127.0.0.1:3001/v1."
         )
 
     required_runtime = [
