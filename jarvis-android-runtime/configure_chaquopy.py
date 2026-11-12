@@ -319,27 +319,27 @@ commands.allow = ["initialize"]
 [[permission]]
 identifier = "allow-start-backend"
 description = "Allows starting the embedded JARVIS Python backend."
-commands.allow = ["startBackend"]
+commands.allow = ["start_backend"]
 
 [[permission]]
 identifier = "allow-listen-once"
 description = "Allows starting native Android speech recognition."
-commands.allow = ["listenOnce"]
+commands.allow = ["listen_once"]
 
 [[permission]]
 identifier = "allow-stop-listening"
 description = "Allows stopping native Android speech recognition."
-commands.allow = ["stopListening"]
+commands.allow = ["stop_listening"]
 
 [[permission]]
 identifier = "allow-start-recording"
 description = "Allows starting native Android AudioRecord capture."
-commands.allow = ["startRecording"]
+commands.allow = ["start_recording"]
 
 [[permission]]
 identifier = "allow-stop-recording"
 description = "Allows stopping native Android AudioRecord capture."
-commands.allow = ["stopRecording"]
+commands.allow = ["stop_recording"]
 
 [[permission]]
 identifier = "allow-speak"
@@ -354,22 +354,22 @@ commands.allow = ["shutdown"]
 [[permission]]
 identifier = "allow-get-daemon-status"
 description = "Allows reading the Android JARVIS runtime socket connection state."
-commands.allow = ["getDaemonStatus"]
+commands.allow = ["get_daemon_status"]
 
 [[permission]]
 identifier = "allow-send-daemon-message"
 description = "Allows sending a command through the authenticated JARVIS GUI socket."
-commands.allow = ["sendDaemonMessage"]
+commands.allow = ["send_daemon_message"]
 
 [[permission]]
 identifier = "allow-send-daemon-control"
 description = "Allows starting or stopping the JARVIS wake-word listener."
-commands.allow = ["sendDaemonControl"]
+commands.allow = ["send_daemon_control"]
 
 [[permission]]
 identifier = "allow-perform-phone-action"
 description = "Allows invoking permission-aware Android intents and device actions."
-commands.allow = ["performPhoneAction"]
+commands.allow = ["perform_phone_action"]
 
 [[set]]
 identifier = "default"
