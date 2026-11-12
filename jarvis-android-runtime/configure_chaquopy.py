@@ -413,8 +413,11 @@ permissions = [
     let builder = builder.plugin(
         tauri::plugin::Builder::<_, ()>::new("jarvis-voice")
             .setup(|app, api| {
-                let data_dir = app.path().app_data_dir()?.join("jarvis-runtime").join("data");
-                let runtime_root = app.path().app_data_dir()?.join("jarvis-runtime");
+                // Match Android Context.filesDir used by RuntimeAssetInstaller.install().
+                // app_data_dir() adds Tauri's bundle-id subdirectory and would point the
+                // Rust GUI socket at a different directory than the embedded Python client.
+                let data_dir = app.path().data_dir()?.join("jarvis-runtime").join("data");
+                let runtime_root = app.path().data_dir()?.join("jarvis-runtime");
                 std::env::set_var("JARVIS_DATA_DIR", data_dir.to_string_lossy().to_string());
                 std::env::set_var("JARVIS_ANDROID_DATA_DIR", runtime_root.to_string_lossy().to_string());
                 std::env::set_var("HOME", runtime_root.to_string_lossy().to_string());
