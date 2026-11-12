@@ -28,11 +28,13 @@ class AndroidSTT(STTProvider):
     def start(self) -> None:
         if self._running:
             return
-        if not self._router.isAvailable():
-            raise RuntimeError("Android SpeechRecognizer service or microphone permission is unavailable")
         self._running = True
         subscribe_text(self._on_text)
-        self._router.listenOnce()
+        # Do not fail the entire local JARVIS runtime when microphone permission
+        # or Android's speech service is unavailable. Text commands and the local
+        # LLM remain usable; the user can enable voice later from Runtime Settings.
+        if self._router.isAvailable():
+            self._router.listenOnce()
 
     def stop(self) -> None:
         self._running = False
