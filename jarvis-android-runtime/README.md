@@ -60,6 +60,27 @@ or OAuth credentials to source control.
   and checked against a pinned SHA-256 before use. The server is loopback-only,
   CPU-only, two threads and a 1024-token context for the 4 GB physical-RAM
   target.
+
+### Hybrid AI provider pool
+
+- The Android Settings HUD can configure Groq, Google Gemini, OpenRouter, or
+  any custom **OpenAI-compatible** API endpoint. Provider name, model, base URL,
+  and API key are saved under the app-private
+  `files/jarvis-runtime/config/providers.json` path; API keys are not committed
+  to source control. Android's app sandbox protects this file, but this overlay
+  does not separately encrypt the API key.
+- The existing Project-JARVIS ordered provider pool tries configured online API
+  providers first and keeps the local llama.cpp model as the final offline
+  fallback. If no cloud provider is configured, the local model is first.
+- Restart JARVIS after changing a provider. Cloud inference requires a valid
+  API key and network access. Provider failure can fall through to the local
+  model according to the upstream provider-pool behavior.
+- Native Anthropic Messages API is not wired as a dedicated provider here;
+  use an OpenAI-compatible gateway if routing an Anthropic model.
+- Online model access does not automatically provide live web search or a
+  complete offline copy of all AI knowledge. Those need separate retrieval
+  integration and a larger local model.
+
 - Native Android TextToSpeech is exposed as a Project-JARVIS TTS provider.
   The selected Android STT and wake-word activation providers use native
   SpeechRecognizer and forward partial/final transcripts into Project-JARVIS.
