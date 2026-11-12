@@ -140,7 +140,7 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
     setup = setup_path.read_text(encoding="utf-8") if setup_path.is_file() else ""
     termux_clone_documented = bool(
         re.search(
-            r"(?im)^\\s*git\\s+clone\\s+https://github\\.com/[^/\\s]+/freellmapi(?:\\.git)?\\s*$",
+            r"(?im)^\s*git\s+clone\s+https://github\.com/[^/\s]+/freellmapi(?:\.git)?\s*$",
             setup,
         )
     )
