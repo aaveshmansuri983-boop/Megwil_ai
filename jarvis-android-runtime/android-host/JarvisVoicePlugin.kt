@@ -101,22 +101,12 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(result)
             return
         }
-        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        // The local command engine must remain usable without microphone access,
+        // Google speech services, or an initialized TTS engine. Voice is optional;
+        // keyboard commands and the on-device LLM can still run offline.
+        if (bridge == null) {
             result.put("started", false)
-            result.put("reason", "RECORD_AUDIO permission must be granted before backend startup")
-            invoke.resolve(result)
-            return
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(activity)) {
-            result.put("started", false)
-            result.put("reason", "Android speech recognition service is unavailable")
-            invoke.resolve(result)
-            return
-        }
-        val audio = bridge
-        if (audio == null || !audio.isSpeechReady()) {
-            result.put("started", false)
-            result.put("reason", "Initialize the native TextToSpeech bridge and wait until it is ready")
+            result.put("reason", "Native Android bridge is not initialized; retry initialization")
             invoke.resolve(result)
             return
         }
@@ -286,6 +276,27 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 .put("last_error", error.message ?: error.javaClass.simpleName).toString()
         }
         invoke.resolve(JSObject().apply { put("statusJson", statusJson) })
+    }
+
+    @Command
+    fun getRuntimeDiagnostics(invoke: Invoke) {
+        val root = java.io.File(activity.filesDir, "jarvis-runtime")
+        val model = java.io.File(root, "models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf")
+        val binaries = listOf("dispatch", "dmcp", "contextor", "llama-server")
+        val libraries = listOf("libllama-server-impl.so", "libllama-common.so", "libmtmd.so", "libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so")
+        val assetsPresent = binaries.all { java.io.File(root, "bin/$it").isFile } &&
+            libraries.all { java.io.File(root, "lib/$it").isFile }
+        val diagnostics = JSONObject().apply {
+            put("pythonStarted", Python.isStarted())
+            put("runtimeAssetsPresent", assetsPresent)
+            put("localModelPresent", model.isFile && model.length() > 100_000_000L)
+            put("localModelBytes", if (model.isFile) model.length() else 0L)
+            put("microphonePermission", activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            put("speechServiceAvailable", SpeechRecognizer.isRecognitionAvailable(activity))
+            put("textToSpeechReady", bridge?.isSpeechReady() == true)
+            put("runtimeDirectory", root.absolutePath)
+        }
+        invoke.resolve(JSObject().apply { put("diagnosticsJson", diagnostics.toString()) })
     }
 
     @Command
