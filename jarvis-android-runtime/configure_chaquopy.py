@@ -399,7 +399,10 @@ permissions = [
         "description": "Allows the main Android window to control native JARVIS voice services.",
         "windows": ["main"],
         "platforms": ["android"],
-        "permissions": ["core:default", "core:event:default", "default"],
+        # The custom Kotlin plugin's permission set must be namespaced.
+        # Unqualified "default" does not grant plugin:jarvis-voice commands,
+        # which causes requestPermissions to fail the Tauri ACL at runtime.
+        "permissions": ["core:default", "core:event:default", "jarvis-voice:default"],
     }
     (capabilities_dir / "jarvis-android-voice.json").write_text(json.dumps(voice_capability, indent=2) + "\n")
 
