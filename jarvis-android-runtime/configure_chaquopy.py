@@ -362,6 +362,11 @@ description = "Allows reading local JARVIS runtime, model, and Android speech re
 commands.allow = ["get_runtime_diagnostics"]
 
 [[permission]]
+identifier = "allow-save-online-provider"
+description = "Allows saving an online AI provider configuration in private app storage."
+commands.allow = ["save_online_provider"]
+
+[[permission]]
 identifier = "allow-send-daemon-message"
 description = "Allows sending a command through the authenticated JARVIS GUI socket."
 commands.allow = ["send_daemon_message"]
@@ -392,6 +397,7 @@ permissions = [
     "allow-shutdown",
     "allow-get-daemon-status",
     "allow-get-runtime-diagnostics",
+    "allow-save-online-provider",
     "allow-send-daemon-message",
     "allow-send-daemon-control",
     "allow-perform-phone-action",
