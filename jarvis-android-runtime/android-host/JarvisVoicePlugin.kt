@@ -302,7 +302,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     fun saveOnlineProvider(invoke: Invoke) {
         val args = invoke.parseArgs(OnlineProviderArgs::class.java)
         val provider = args.provider.trim().lowercase()
-        val allowed = setOf("groq", "gemini", "openrouter", "custom")
+        val allowed = setOf("groq", "gemini", "openrouter", "custom", "freellmapi")
         val baseUrl = args.baseUrl.trim().trimEnd('/')
         val model = args.model.trim()
         val apiKey = args.apiKey?.trim().orEmpty()
