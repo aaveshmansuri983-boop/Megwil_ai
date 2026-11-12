@@ -81,6 +81,21 @@ class AndroidBridgeTests(unittest.TestCase):
                 client.stop()
                 server.close()
 
+    def test_android_bridge_uses_acl_command_names(self):
+        bridge = (RUNTIME / "android-host" / "voice-bridge.js").read_text()
+        expected = (
+            "get_daemon_status",
+            "get_runtime_diagnostics",
+            "start_backend",
+            "send_daemon_message",
+            "send_daemon_control",
+            "perform_phone_action",
+        )
+        for command in expected:
+            self.assertIn("plugin:jarvis-voice|" + command, bridge)
+        for stale in ("getDaemonStatus", "startBackend", "sendDaemonMessage", "sendDaemonControl", "performPhoneAction"):
+            self.assertNotIn("plugin:jarvis-voice|" + stale, bridge)
+
     def test_exact_voice_action_phrases(self):
         self.assertEqual(parse_voice_command("open WhatsApp"), {"action": "open_app", "target": "whatsapp"})
         self.assertEqual(parse_voice_command("call +91 98765 43210"), {"action": "dial", "target": "+919876543210"})
