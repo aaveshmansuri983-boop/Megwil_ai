@@ -87,13 +87,14 @@ class AndroidBridgeTests(unittest.TestCase):
             "get_daemon_status",
             "get_runtime_diagnostics",
             "start_backend",
+            "listen_once",
             "send_daemon_message",
             "send_daemon_control",
             "perform_phone_action",
         )
         for command in expected:
             self.assertIn("plugin:jarvis-voice|" + command, bridge)
-        for stale in ("getDaemonStatus", "startBackend", "sendDaemonMessage", "sendDaemonControl", "performPhoneAction"):
+        for stale in ("getDaemonStatus", "startBackend", "listenOnce", "sendDaemonMessage", "sendDaemonControl", "performPhoneAction"):
             self.assertNotIn("plugin:jarvis-voice|" + stale, bridge)
 
     def test_exact_voice_action_phrases(self):
