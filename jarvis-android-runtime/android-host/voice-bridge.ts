@@ -1,9 +1,9 @@
-import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { addPluginListener, invoke, requestPermissions } from "@tauri-apps/api/core";
 
 export type JarvisSpeechEvent = { text?: string; state?: string; delivered?: boolean; reason?: string; code?: number };
 
 export const jarvisVoice = {
-  requestPermissions: () => invoke("plugin:jarvis-voice|requestPermissions", { permissions: ["recordAudio"] }),
+  requestPermissions: () => requestPermissions("jarvis-voice"),
   initialize: () => invoke<{ ready: boolean }>("plugin:jarvis-voice|initialize"),
   startBackend: () => invoke<{ started: boolean; reason?: string; runtimePath?: string }>("plugin:jarvis-voice|startBackend"),
   listenOnce: () => invoke<{ started: boolean; reason?: string }>("plugin:jarvis-voice|listenOnce"),
