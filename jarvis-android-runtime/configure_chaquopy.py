@@ -245,9 +245,25 @@ chaquopy {
     app_config["withGlobalTauri"] = True
     security_config = app_config.setdefault("security", {})
     configured_capabilities = security_config.get("capabilities")
-    if isinstance(configured_capabilities, list) and "jarvis-android-voice" not in configured_capabilities:
+    if not isinstance(configured_capabilities, list):
+        configured_capabilities = []
+    if "jarvis-android-voice" not in configured_capabilities:
         configured_capabilities.append("jarvis-android-voice")
-    config_path.write_text(json.dumps(config_data, indent=2) + "\n")
+    security_config["capabilities"] = configured_capabilities
+    serialized_config = json.dumps(config_data, indent=2) + "\n"
+    config_path.write_text(serialized_config)
+
+    # Tauri Android init snapshots tauri.conf.json into the generated Android
+    # app assets. Updating only src-tauri/tauri.conf.json after init leaves the
+    # packaged APK with stale capabilities (often an empty list), which causes
+    # every custom plugin command to fail with "not allowed by ACL".
+    generated_config_path = android / "app" / "src" / "main" / "assets" / "tauri.conf.json"
+    generated_config_path.parent.mkdir(parents=True, exist_ok=True)
+    generated_config_path.write_text(serialized_config)
+    packaged_config = json.loads(generated_config_path.read_text())
+    packaged_capabilities = packaged_config.get("app", {}).get("security", {}).get("capabilities", [])
+    if "jarvis-android-voice" not in packaged_capabilities:
+        raise SystemExit("Generated Android tauri.conf.json is missing jarvis-android-voice capability")
     web_src = project / "src"
     if not web_src.is_dir():
         raise SystemExit("Tauri frontend source directory is missing")
