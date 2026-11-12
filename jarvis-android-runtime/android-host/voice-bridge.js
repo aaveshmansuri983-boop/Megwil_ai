@@ -146,7 +146,7 @@
     button.disabled = true;
     try {
       await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
-      const result = await api("plugin:jarvis-voice|listenOnce");
+      const result = await api("plugin:jarvis-voice|listen_once");
       if (!result?.started) throw new Error(result?.reason || "Android speech service unavailable. Install an offline language pack in Android speech settings.");
       micStatus.textContent = "Microphone: voice recognition started";
       settingsStatus.textContent += "\n\nVoice recognition: listening. Offline recognition depends on the Android speech engine and installed language pack.";
