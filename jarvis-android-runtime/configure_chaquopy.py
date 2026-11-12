@@ -357,6 +357,11 @@ description = "Allows reading the Android JARVIS runtime socket connection state
 commands.allow = ["get_daemon_status"]
 
 [[permission]]
+identifier = "allow-get-runtime-diagnostics"
+description = "Allows reading local JARVIS runtime, model, and Android speech readiness."
+commands.allow = ["get_runtime_diagnostics"]
+
+[[permission]]
 identifier = "allow-send-daemon-message"
 description = "Allows sending a command through the authenticated JARVIS GUI socket."
 commands.allow = ["send_daemon_message"]
@@ -386,6 +391,7 @@ permissions = [
     "allow-speak",
     "allow-shutdown",
     "allow-get-daemon-status",
+    "allow-get-runtime-diagnostics",
     "allow-send-daemon-message",
     "allow-send-daemon-control",
     "allow-perform-phone-action",
