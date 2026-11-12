@@ -138,19 +138,25 @@ def inspect(archive: Path, runtime: Path) -> dict[str, object]:
     setup_path = runtime / "FREELLMAPI-ANDROID-SETUP.md"
     bridge = bridge_path.read_text(encoding="utf-8") if bridge_path.is_file() else ""
     setup = setup_path.read_text(encoding="utf-8") if setup_path.is_file() else ""
+    termux_clone_documented = bool(
+        re.search(
+            r"(?im)^\\s*git\\s+clone\\s+https://github\\.com/[^/\\s]+/freellmapi(?:\\.git)?\\s*$",
+            setup,
+        )
+    )
     provider_ready = (
         'value="freellmapi"' in bridge
         and "http://127.0.0.1:3001/v1" in bridge
         and 'model:"auto"' in bridge
         and "npm run dev" in setup
-        and "freellmapi-" in setup
+        and termux_clone_documented
         and "http://127.0.0.1:3001/v1" in setup
     )
     checks["freellmapi"] = {
         "provider_option": 'value="freellmapi"' in bridge,
         "loopback_api_url": "http://127.0.0.1:3001/v1" in bridge,
         "automatic_model": 'model:"auto"' in bridge,
-        "termux_setup_documented": bool(setup and "npm run dev" in setup and "freellmapi-" in setup),
+        "termux_setup_documented": bool(setup and "npm run dev" in setup and termux_clone_documented),
     }
     if not provider_ready:
         missing.append(
