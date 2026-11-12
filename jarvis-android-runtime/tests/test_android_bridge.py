@@ -98,6 +98,12 @@ class AndroidBridgeTests(unittest.TestCase):
             self.assertIn("plugin:jarvis-voice|" + command, bridge)
         for stale in ("getDaemonStatus", "startBackend", "listenOnce", "sendDaemonMessage", "sendDaemonControl", "performPhoneAction"):
             self.assertNotIn("plugin:jarvis-voice|" + stale, bridge)
+        plugin = (RUNTIME / "android-host" / "JarvisVoicePlugin.kt").read_text()
+        permissions = (RUNTIME / "configure_chaquopy.py").read_text()
+        self.assertIn("fun saveOnlineProvider", plugin)
+        self.assertIn('commands.allow = ["save_online_provider"]', permissions)
+        self.assertIn('"allow-save-online-provider"', permissions)
+        self.assertIn("SAVE ONLINE PROVIDER", bridge)
 
     def test_exact_voice_action_phrases(self):
         self.assertEqual(parse_voice_command("open WhatsApp"), {"action": "open_app", "target": "whatsapp"})
