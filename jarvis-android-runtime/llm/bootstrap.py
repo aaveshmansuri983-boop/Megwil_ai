@@ -77,9 +77,14 @@ def configure_provider() -> Path:
         "api_key": "",
         "temperature": 0.7,
     }
-    # Keep user-added providers; place the on-device model first for offline use.
-    providers[:] = [p for p in providers if p.get("name") != entry["name"]]
-    providers.insert(0, entry)
+    # Project-JARVIS' provider pool performs ordered failover. Keep configured
+    # online API providers first, then the local model as the guaranteed offline
+    # fallback. If no cloud provider is configured, local is the first provider.
+    existing = [p for p in providers if isinstance(p, dict) and p.get("name") != entry["name"]]
+    online = [p for p in existing if p.get("type") == "api" and
+              str(p.get("url", "")).startswith(("https://", "http://"))]
+    other = [p for p in existing if p not in online]
+    providers[:] = online + other + [entry]
     providers_file.write_text(json.dumps(data, indent=2) + "\n")
     return providers_file
 
