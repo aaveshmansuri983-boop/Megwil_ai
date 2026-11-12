@@ -55,7 +55,7 @@ def _module_available(name: str) -> bool:
 
 def inspect_runtime() -> dict[str, object]:
     root = configure_private_storage()
-    required_modules = ("ollama", "dotenv", "mcp", "httpx", "pathspec", "android_audio", "android_sounddevice", "jarvis.voice.stt.android_stt", "jarvis.voice.activation.android_activation", "jarvis.voice.tts.android_tts")
+    required_modules = ("ollama", "dotenv", "mcp", "httpx", "pathspec", "android_audio", "android_actions", "android_daemon", "android_sounddevice", "jarvis.voice.stt.android_stt", "jarvis.voice.activation.android_activation", "jarvis.voice.tts.android_tts")
     required_bins = ("dispatch", "dmcp", "contextor")
     required_llm_libs = ("libllama-server-impl.so", "libllama-common.so", "libmtmd.so", "libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so")
     modules = {name: _module_available(name) for name in required_modules}
@@ -98,8 +98,13 @@ def main() -> int:
         os.environ["OUTPUT_MODE"] = "voice"
         import android_sounddevice
         sys.modules["sounddevice"] = android_sounddevice
-    from jarvis.main import main as jarvis_main
-    jarvis_main()
+    from android_daemon import start as start_gui_socket_client, stop as stop_gui_socket_client
+    start_gui_socket_client()
+    try:
+        from jarvis.main import main as jarvis_main
+        jarvis_main()
+    finally:
+        stop_gui_socket_client()
     return 0
 
 

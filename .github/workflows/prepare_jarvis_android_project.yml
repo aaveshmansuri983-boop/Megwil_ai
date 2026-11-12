@@ -202,6 +202,9 @@ jobs:
             --runtime "$GITHUB_WORKSPACE/jarvis-android-runtime" \
             --backend-source "$RUNNER_TEMP/backend/python" \
             --runtime-assets "$RUNNER_TEMP/runtime-assets"
+      - name: Test Android GUI socket handshake and native action parsing
+        run: |
+          python -m unittest discover -s jarvis-android-runtime/tests -p "test_android_bridge.py" -v
       - name: Enforce Android-specific Python requirements in generated project
         shell: bash
         run: |

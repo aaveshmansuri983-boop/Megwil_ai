@@ -199,7 +199,7 @@ chaquopy {
     if not (mcp_source / "client" / "session.py").is_file():
         raise SystemExit("Android-compatible vendored MCP client source is missing")
     shutil.copytree(mcp_source, python_dir / "mcp", dirs_exist_ok=True)
-    for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "android_audio.py", "android_sounddevice.py", "android_tts.py", "requirements-android.txt"):
+    for name in ("bootstrap.py", "sidecar_launcher.py", "oauth_check.py", "android_audio.py", "android_actions.py", "android_daemon.py", "android_sounddevice.py", "android_tts.py", "requirements-android.txt"):
         src = runtime / name
         if not src.is_file():
             raise SystemExit(f"Android Python runtime input missing: {src}")
@@ -218,7 +218,7 @@ chaquopy {
     # Copy the native voice host and Tauri v2 plugin wrapper into the generated app.
     kotlin_dir = android / "app" / "src" / "main" / "java" / "com" / "jarvis" / "android" / "host"
     kotlin_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "RuntimeAssetInstaller.kt", "AndroidTtsRouter.kt", "AndroidSpeechRouter.kt", "AndroidAudioRouter.kt"):
+    for name in ("AudioHostBridge.kt", "JarvisVoicePlugin.kt", "AndroidActionRouter.kt", "RuntimeAssetInstaller.kt", "AndroidTtsRouter.kt", "AndroidSpeechRouter.kt", "AndroidAudioRouter.kt"):
         src = runtime / "android-host" / name
         if not src.is_file():
             raise SystemExit(f"Native Android voice source missing: {src}")
@@ -351,6 +351,26 @@ identifier = "allow-shutdown"
 description = "Allows shutting down the native Android voice bridge."
 commands.allow = ["shutdown"]
 
+[[permission]]
+identifier = "allow-get-daemon-status"
+description = "Allows reading the Android JARVIS runtime socket connection state."
+commands.allow = ["getDaemonStatus"]
+
+[[permission]]
+identifier = "allow-send-daemon-message"
+description = "Allows sending a command through the authenticated JARVIS GUI socket."
+commands.allow = ["sendDaemonMessage"]
+
+[[permission]]
+identifier = "allow-send-daemon-control"
+description = "Allows starting or stopping the JARVIS wake-word listener."
+commands.allow = ["sendDaemonControl"]
+
+[[permission]]
+identifier = "allow-perform-phone-action"
+description = "Allows invoking permission-aware Android intents and device actions."
+commands.allow = ["performPhoneAction"]
+
 [[set]]
 identifier = "default"
 description = "Allows the JARVIS Android voice controls used by the app."
@@ -365,6 +385,10 @@ permissions = [
     "allow-stop-recording",
     "allow-speak",
     "allow-shutdown",
+    "allow-get-daemon-status",
+    "allow-send-daemon-message",
+    "allow-send-daemon-control",
+    "allow-perform-phone-action",
 ]
 """)
     capabilities_dir = project / "src-tauri" / "capabilities"
@@ -409,6 +433,8 @@ permissions = [
     permissions = (
         '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
         '<uses-permission android:name="android.permission.INTERNET" />',
+        '<uses-permission android:name="android.permission.CAMERA" />',
+        '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
     )
     manifest_start = manifest_text.find("<manifest")
     manifest_end = manifest_text.find(">", manifest_start)
@@ -418,6 +444,18 @@ permissions = [
         if permission not in manifest_text:
             manifest_text = manifest_text[:manifest_end + 1] + "\n    " + permission + manifest_text[manifest_end + 1:]
             manifest_end = manifest_text.find(">", manifest_start)
+    if "<queries>" not in manifest_text:
+        queries = """<queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.instagram.android" />
+    </queries>"""
+        application_pos = manifest_text.find("<application")
+        if application_pos < 0:
+            raise SystemExit("AndroidManifest.xml has no application element for package visibility queries")
+        manifest_text = manifest_text[:application_pos] + queries + "\n    " + manifest_text[application_pos:]
     application_start = manifest_text.find("<application")
     application_end = manifest_text.find(">", application_start)
     if application_start < 0 or application_end < 0:

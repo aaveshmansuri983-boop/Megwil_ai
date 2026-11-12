@@ -16,6 +16,13 @@ class AndroidSTT(STTProvider):
 
     def _on_text(self, text: str, is_final: bool) -> None:
         if self._running and (text or is_final):
+            if is_final and str(text).strip():
+                try:
+                    from android_actions import execute_voice_command
+                    execute_voice_command(str(text))
+                except Exception:
+                    # Native action failures must not prevent normal JARVIS voice dispatch.
+                    pass
             self._queue.put((str(text), bool(is_final)))
 
     def start(self) -> None:

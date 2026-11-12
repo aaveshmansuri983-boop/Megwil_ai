@@ -2,6 +2,7 @@ package com.jarvis.android.host
 
 import android.Manifest
 import android.app.Activity
+import org.json.JSONObject
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -23,13 +24,31 @@ internal class SpeakArgs {
     lateinit var text: String
 }
 
+@InvokeArg
+internal class DaemonMessageArgs {
+    lateinit var text: String
+}
+
+@InvokeArg
+internal class DaemonControlArgs {
+    lateinit var command: String
+}
+
+@InvokeArg
+internal class PhoneActionArgs {
+    lateinit var action: String
+    var target: String? = null
+    var value: String? = null
+}
+
 /**
  * Tauri v2 Android host for AudioRecord, Android SpeechRecognizer and TextToSpeech.
  * Register as com.jarvis.android.host.JarvisVoicePlugin from the Rust Android host.
  */
 @TauriPlugin(
     permissions = [
-        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "recordAudio")
+        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "recordAudio"),
+        Permission(strings = [Manifest.permission.CAMERA], alias = "camera")
     ]
 )
 class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
@@ -69,6 +88,7 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
                 { activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED && SpeechRecognizer.isRecognitionAvailable(activity) }
             )
         }
+        AndroidActionRouter.install(activity)
         invoke.resolve(JSObject().apply { put("ready", true) })
     }
 
@@ -251,14 +271,70 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject().apply { put("accepted", ready && args.text.isNotBlank()) })
     }
 
+
+    @Command
+    fun getDaemonStatus(invoke: Invoke) {
+        val statusJson = try {
+            if (Python.isStarted()) {
+                Python.getInstance().getModule("android_daemon").callAttr("status_json").toString()
+            } else {
+                JSONObject().put("state", "offline").put("connected", false)
+                    .put("last_error", "Embedded Python runtime is not started").toString()
+            }
+        } catch (error: Throwable) {
+            JSONObject().put("state", "offline").put("connected", false)
+                .put("last_error", error.message ?: error.javaClass.simpleName).toString()
+        }
+        invoke.resolve(JSObject().apply { put("statusJson", statusJson) })
+    }
+
+    @Command
+    fun sendDaemonMessage(invoke: Invoke) {
+        val args = invoke.parseArgs(DaemonMessageArgs::class.java)
+        val sent = try {
+            Python.isStarted() && Python.getInstance().getModule("android_daemon")
+                .callAttr("send_message", args.text).toString().equals("True", true)
+        } catch (_: Throwable) { false }
+        invoke.resolve(JSObject().apply { put("sent", sent) })
+    }
+
+    @Command
+    fun sendDaemonControl(invoke: Invoke) {
+        val args = invoke.parseArgs(DaemonControlArgs::class.java)
+        val sent = try {
+            Python.isStarted() && Python.getInstance().getModule("android_daemon")
+                .callAttr("send_control", args.command).toString().equals("True", true)
+        } catch (_: Throwable) { false }
+        invoke.resolve(JSObject().apply { put("sent", sent) })
+    }
+
+    @Command
+    fun performPhoneAction(invoke: Invoke) {
+        val args = invoke.parseArgs(PhoneActionArgs::class.java)
+        val result = try {
+            JSONObject(AndroidActionRouter.execute(args.action, args.target, args.value))
+        } catch (error: Throwable) {
+            JSONObject().put("ok", false).put("message", error.message ?: error.javaClass.simpleName)
+        }
+        invoke.resolve(JSObject().apply {
+            put("ok", result.optBoolean("ok", false))
+            put("message", result.optString("message", "Android action failed"))
+            put("permissionRequired", result.optBoolean("permission_required", false))
+        })
+    }
+
     @Command
     fun shutdown(invoke: Invoke) {
+        try {
+            if (Python.isStarted()) Python.getInstance().getModule("android_daemon").callAttr("send_control", "shutdown_request")
+        } catch (_: Throwable) { }
         stopSpeechRecognitionInternal()
         bridge?.shutdown()
         bridge = null
         AndroidTtsRouter.clear()
         AndroidSpeechRouter.clear()
         AndroidAudioRouter.clear()
+        AndroidActionRouter.clear()
         invoke.resolve(JSObject().apply { put("shutdown", true) })
     }
 }
