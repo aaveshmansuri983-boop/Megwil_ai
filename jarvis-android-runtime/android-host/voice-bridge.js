@@ -19,6 +19,12 @@
     "#jarvis-android-dashboard .daemon-pill.connecting .daemon-dot{background:#ffb34d}",
     "#jarvis-android-dashboard .daemon-pill.offline{color:#ff8b78;border-color:rgba(255,102,82,.32)}",
     "#jarvis-android-dashboard .daemon-pill.offline .daemon-dot{background:#ff6652}",
+    "#jarvis-android-dashboard .hud-head-actions{display:flex;align-items:center;gap:8px}",
+    "#jarvis-android-dashboard .settings-panel{position:fixed;inset:0;z-index:2147483002;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;padding:16px}",
+    "#jarvis-android-dashboard .settings-card{width:min(100%,520px);max-height:85vh;overflow:auto;background:#111820;border:1px solid rgba(255,143,83,.5);border-radius:18px;padding:18px;box-shadow:0 18px 60px #000b}",
+    "#jarvis-android-dashboard .settings-card h2{margin:0 0 12px;color:#ffb27a;font-size:15px;letter-spacing:.15em}",
+    "#jarvis-android-dashboard .settings-card p{color:#aeb8c4;font-size:12px;line-height:1.6}",
+    "#jarvis-android-dashboard .settings-status{white-space:pre-wrap;overflow-wrap:anywhere;background:#090d12;border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:12px;color:#dce4ed;font:12px/1.7 monospace}",
     "#jarvis-android-dashboard .hud-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.92fr);gap:22px;flex:1;align-items:center}",
     "#jarvis-android-dashboard .core-panel{min-height:520px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:18px}",
     "#jarvis-android-dashboard .reactor{position:relative;width:clamp(190px,30vw,260px);aspect-ratio:1;border-radius:50%;display:grid;place-items:center;margin:0 auto 24px;isolation:isolate}",
@@ -65,7 +71,7 @@
   root.innerHTML = [
     '<div class="hud-shell"><header class="hud-top">',
     '<div class="brand"><div class="brand-mark">J</div><div>JARVIS V3<small>ANDROID CONTROL CORE</small></div></div>',
-    '<div id="daemon-pill" class="daemon-pill offline"><i class="daemon-dot"></i><span id="daemon-label">RUNTIME OFFLINE</span></div>',
+    '<div class="hud-head-actions"><div id="daemon-pill" class="daemon-pill offline"><i class="daemon-dot"></i><span id="daemon-label">RUNTIME OFFLINE</span></div><button id="jarvis-settings-open" class="secondary-btn" type="button">SETTINGS</button></div>',
     '</header><main class="hud-grid"><section class="core-panel">',
     '<div id="reactor" class="reactor" data-state="standby"><i class="ring ring-one"></i><i class="ring ring-two"></i><i class="ring ring-three"></i><div class="reactor-core">J</div></div>',
     '<div id="voice-state" class="voice-state">STANDBY</div><div id="voice-hint" class="voice-hint">Initialize the local runtime to connect the Android voice bridge and JARVIS command engine.</div>',
@@ -87,6 +93,10 @@
     '</div></section></main><footer class="hud-footer"><span>PRIVATE LOCAL RUNTIME • ARM64</span><button id="jarvis-workspace" class="workspace-btn">OPEN WORKSPACE</button></footer></div>'
   ].join("");
   document.body.appendChild(root);
+  const settingsPanel = document.createElement("div");
+  settingsPanel.className = "settings-panel";
+  settingsPanel.innerHTML = '<section class="settings-card"><h2>JARVIS RUNTIME SETTINGS</h2><p>Local AI model aur Android runtime ki readiness yahan check karein. Pehli baar model download karne ke liye internet chahiye; verified model phone mein save hone ke baad local AI offline chal sakta hai.</p><div id="jarvis-settings-status" class="settings-status">Checking device…</div><div class="primary-row"><button id="jarvis-settings-refresh" class="primary-btn" type="button">REFRESH STATUS</button><button id="jarvis-settings-close" class="secondary-btn" type="button">CLOSE</button></div></section>';
+  root.appendChild(settingsPanel);
 
   const $ = selector => root.querySelector(selector);
   const startButton = $("#jarvis-start");
@@ -100,11 +110,38 @@
   const micStatus = $("#mic-status");
   const runtimeStatus = $("#runtime-status");
   const actionStatus = $("#action-status");
+  const settingsStatus = $("#jarvis-settings-status");
+  const settingsPanelElement = $(".settings-panel");
   let initialized = false;
   let listening = false;
   let userPaused = false;
   let wasConnected = false;
   let torchOn = false;
+
+  async function refreshRuntimeSettings() {
+    settingsStatus.textContent = "Checking runtime, local model and microphone…";
+    try {
+      const response = await api("plugin:jarvis-voice|get_runtime_diagnostics");
+      const data = JSON.parse(response?.diagnosticsJson || "{}");
+      const model = data.localModelPresent ? "DOWNLOADED — local inference can work offline" : "NOT DOWNLOADED — internet required for first model download";
+      settingsStatus.textContent = [
+        "Embedded Python: " + (data.pythonStarted ? "running" : "not started"),
+        "Runtime binaries: " + (data.runtimeAssetsPresent ? "ready" : "missing / not installed"),
+        "Local Qwen model: " + model,
+        "Microphone permission: " + (data.microphonePermission ? "granted" : "not granted"),
+        "Android speech service: " + (data.speechServiceAvailable ? "available (offline language pack depends on Android speech settings)" : "unavailable — text commands still work"),
+        "Text-to-Speech: " + (data.textToSpeechReady ? "ready" : "initializing / unavailable"),
+        "App-private runtime: " + (data.runtimeDirectory || "not created")
+      ].join("\\n");
+    } catch (error) {
+      settingsStatus.textContent = "Settings diagnostics unavailable: " + String(error?.message || error);
+    }
+  }
+
+  $("#jarvis-settings-open").addEventListener("click", () => { settingsPanelElement.style.display = "flex"; refreshRuntimeSettings(); });
+  $("#jarvis-settings-close").addEventListener("click", () => { settingsPanelElement.style.display = "none"; });
+  $("#jarvis-settings-refresh").addEventListener("click", refreshRuntimeSettings);
+  settingsPanelElement.addEventListener("click", event => { if (event.target === settingsPanelElement) settingsPanelElement.style.display = "none"; });
 
   function setVoiceState(state, hint) {
     const normalized = String(state || "standby").toLowerCase();
@@ -127,7 +164,7 @@
       startButton.textContent = "JARVIS ONLINE";
       if (!wasPreviouslyConnected) {
         const command = userPaused ? "stop_listening" : "start_listening";
-        api("plugin:jarvis-voice|sendDaemonControl", {command}).then(result => {
+        api("plugin:jarvis-voice|send_daemon_control", {command}).then(result => {
           if (result?.sent) {
             listening = !userPaused;
             listenButton.textContent = listening ? "STOP LISTENING" : "START LISTENING";
@@ -142,7 +179,7 @@
 
   async function getDaemonStatus() {
     try {
-      const response = await api("plugin:jarvis-voice|getDaemonStatus");
+      const response = await api("plugin:jarvis-voice|get_daemon_status");
       const status = JSON.parse(response?.statusJson || "{}");
       setDaemonStatus(status);
       return status;
@@ -167,18 +204,23 @@
     setVoiceState("preparing", "Requesting microphone access and initializing native Android speech services.");
     micStatus.textContent = "Microphone: requesting permission";
     try {
-      await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
+      try {
+        await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
+        micStatus.textContent = "Microphone: permission granted";
+      } catch (permissionError) {
+        micStatus.textContent = "Microphone: unavailable; text control remains enabled";
+      }
       await api("plugin:jarvis-voice|initialize");
-      micStatus.textContent = "Microphone: permission granted; native bridge initialized";
+      micStatus.textContent += "; native bridge initialized";
       setVoiceState("starting", "Starting the embedded JARVIS Python runtime and waiting for the real GUI socket handshake.");
-      const result = await api("plugin:jarvis-voice|startBackend");
+      const result = await api("plugin:jarvis-voice|start_backend");
       if (!result?.started) throw new Error(result?.reason || "JARVIS runtime did not start");
       const connected = await waitForDaemon(90000);
       if (!connected) throw new Error("Python runtime started, but the JARVIS GUI socket handshake is still offline. Check runtime assets and the local model.");
       initialized = true;
       listening = !userPaused;
       const desiredListening = userPaused ? "stop_listening" : "start_listening";
-      await api("plugin:jarvis-voice|sendDaemonControl", {command:desiredListening});
+      await api("plugin:jarvis-voice|send_daemon_control", {command:desiredListening});
       startButton.textContent = "JARVIS ONLINE";
       startButton.disabled = true;
       listenButton.disabled = false;
@@ -194,7 +236,7 @@
   async function toggleListening() {
     if (!initialized) return;
     const command = listening ? "stop_listening" : "start_listening";
-    const result = await api("plugin:jarvis-voice|sendDaemonControl", {command});
+    const result = await api("plugin:jarvis-voice|send_daemon_control", {command});
     if (!result?.sent) {
       setVoiceState("offline", "The JARVIS runtime connection is unavailable. Reconnect before changing voice listening.");
       return;
@@ -209,7 +251,7 @@
     const input = $("#jarvis-command");
     const text = input.value.trim();
     if (!text) return;
-    const result = await api("plugin:jarvis-voice|sendDaemonMessage", {text});
+    const result = await api("plugin:jarvis-voice|send_daemon_message", {text});
     if (!result?.sent) {
       setVoiceState("offline", "Command was not sent because the JARVIS GUI socket is disconnected.");
       return;
@@ -221,11 +263,11 @@
 
   async function phoneAction(action, target, value) {
     try {
-      let result = await api("plugin:jarvis-voice|performPhoneAction", {action,target,value});
+      let result = await api("plugin:jarvis-voice|perform_phone_action", {action,target,value});
       if (result?.permissionRequired) {
         actionStatus.textContent = "Phone actions: camera permission required; requesting it now";
         await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
-        result = await api("plugin:jarvis-voice|performPhoneAction", {action,target,value});
+        result = await api("plugin:jarvis-voice|perform_phone_action", {action,target,value});
       }
       actionStatus.textContent = "Phone actions: " + String(result?.message || "No result");
       if (!result?.ok) setVoiceState("error", result?.message || "Android action was not completed");
