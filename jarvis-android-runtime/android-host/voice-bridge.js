@@ -95,7 +95,7 @@
   document.body.appendChild(root);
   const settingsPanel = document.createElement("div");
   settingsPanel.className = "settings-panel";
-  settingsPanel.innerHTML = '<section class="settings-card"><h2>JARVIS RUNTIME SETTINGS</h2><p>Local AI model aur Android runtime ki readiness yahan check karein. Pehli baar model download karne ke liye internet chahiye; verified model phone mein save hone ke baad local AI offline chal sakta hai.</p><div id="jarvis-settings-status" class="settings-status">Checking device…</div><div class="primary-row"><button id="jarvis-settings-refresh" class="primary-btn" type="button">REFRESH STATUS</button><button id="jarvis-settings-close" class="secondary-btn" type="button">CLOSE</button></div></section>';
+  settingsPanel.innerHTML = '<section class="settings-card"><h2>JARVIS RUNTIME SETTINGS</h2><p>Local AI model aur Android runtime ki readiness yahan check karein. Pehli baar model download karne ke liye internet chahiye; verified model phone mein save hone ke baad local AI offline chal sakta hai.</p><div id="jarvis-settings-status" class="settings-status">Checking device…</div><div class="primary-row"><button id="jarvis-settings-refresh" class="primary-btn" type="button">REFRESH STATUS</button><button id="jarvis-settings-mic" class="secondary-btn" type="button">ENABLE VOICE</button><button id="jarvis-settings-close" class="secondary-btn" type="button">CLOSE</button></div></section>';
   root.appendChild(settingsPanel);
 
   const $ = selector => root.querySelector(selector);
@@ -141,6 +141,22 @@
   $("#jarvis-settings-open").addEventListener("click", () => { settingsPanelElement.style.display = "flex"; refreshRuntimeSettings(); });
   $("#jarvis-settings-close").addEventListener("click", () => { settingsPanelElement.style.display = "none"; });
   $("#jarvis-settings-refresh").addEventListener("click", refreshRuntimeSettings);
+  $("#jarvis-settings-mic").addEventListener("click", async () => {
+    const button = $("#jarvis-settings-mic");
+    button.disabled = true;
+    try {
+      await window.__TAURI__?.core?.requestPermissions("jarvis-voice");
+      const result = await api("plugin:jarvis-voice|listenOnce");
+      if (!result?.started) throw new Error(result?.reason || "Android speech service unavailable. Install an offline language pack in Android speech settings.");
+      micStatus.textContent = "Microphone: voice recognition started";
+      settingsStatus.textContent += "\\n\\nVoice recognition: listening. Offline recognition depends on the Android speech engine and installed language pack.";
+    } catch (error) {
+      micStatus.textContent = "Microphone: unavailable";
+      settingsStatus.textContent += "\\n\\nVoice setup: " + String(error?.message || error);
+    } finally {
+      button.disabled = false;
+    }
+  });
   settingsPanelElement.addEventListener("click", event => { if (event.target === settingsPanelElement) settingsPanelElement.style.display = "none"; });
 
   function setVoiceState(state, hint) {
