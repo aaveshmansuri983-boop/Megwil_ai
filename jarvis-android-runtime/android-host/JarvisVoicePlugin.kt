@@ -379,7 +379,11 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             put("backendStatus", readBackendStatus().toString())
             val providerFile = java.io.File(root, "config/providers.json")
             val providerConfig = try { if (providerFile.isFile) JSONObject(providerFile.readText()) else JSONObject() } catch (_: Throwable) { JSONObject() }
-            put("onlineProviderCount", providerConfig.optJSONArray("providers")?.length() ?: 0)
+            val configuredProviders = providerConfig.optJSONArray("providers") ?: org.json.JSONArray()
+            val onlineProviderCount = (0 until configuredProviders.length()).count { index ->
+                configuredProviders.optJSONObject(index)?.optString("name")?.startsWith("android-online-") == true
+            }
+            put("onlineProviderCount", onlineProviderCount)
         }
         invoke.resolve(JSObject().apply { put("diagnosticsJson", diagnostics.toString()) })
     }
