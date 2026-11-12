@@ -228,11 +228,11 @@
       }
       await api("plugin:jarvis-voice|initialize");
       micStatus.textContent += "; native bridge initialized";
-      setVoiceState("starting", "Starting the embedded JARVIS Python runtime and waiting for the real GUI socket handshake.");
+      setVoiceState("starting", "Starting the on-device JARVIS runtime. First launch may download the local AI model (several hundred MB); keep the app open and connected to the internet. Later launches can work offline.");
       const result = await api("plugin:jarvis-voice|start_backend");
       if (!result?.started) throw new Error(result?.reason || "JARVIS runtime did not start");
-      const connected = await waitForDaemon(90000);
-      if (!connected) throw new Error("Python runtime started, but the JARVIS GUI socket handshake is still offline. Check runtime assets and the local model.");
+      const connected = await waitForDaemon(15 * 60 * 1000);
+      if (!connected) throw new Error("JARVIS did not finish connecting within 15 minutes. Open Settings to check runtime assets and whether the first-run local model download completed.");
       initialized = true;
       listening = !userPaused;
       const desiredListening = userPaused ? "stop_listening" : "start_listening";
