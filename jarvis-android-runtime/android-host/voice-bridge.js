@@ -102,6 +102,8 @@
   const actionStatus = $("#action-status");
   let initialized = false;
   let listening = false;
+  let userPaused = false;
+  let wasConnected = false;
   let torchOn = false;
 
   function setVoiceState(state, hint) {
@@ -114,13 +116,27 @@
   function setDaemonStatus(status) {
     const connected = status && status.connected === true;
     const connecting = status && status.state === "connecting";
+    const wasPreviouslyConnected = wasConnected;
+    wasConnected = connected;
     daemonPill.className = "daemon-pill " + (connected ? "connected" : (connecting ? "connecting" : "offline"));
     daemonLabel.textContent = connected ? "RUNTIME CONNECTED" : (connecting ? "CONNECTING" : "RUNTIME OFFLINE");
-    runtimeStatus.textContent = "Runtime: " + (connected ? "GUI socket handshake confirmed" : (status?.last_error || status?.state || "offline"));
-    listenButton.disabled = !connected;
-    if (!connected && listening) {
-      listening = false;
-      listenButton.textContent = "START LISTENING";
+    runtimeStatus.textContent = "Runtime: " + (connected ? "GUI socket handshake confirmed (" + (status.runtime_state || "running") + ")" : (status?.last_error || status?.state || "offline"));
+    listenButton.disabled = !connected || !initialized;
+    if (connected && initialized) {
+      startButton.disabled = true;
+      startButton.textContent = "JARVIS ONLINE";
+      if (!wasPreviouslyConnected) {
+        const command = userPaused ? "stop_listening" : "start_listening";
+        api("plugin:jarvis-voice|sendDaemonControl", {command}).then(result => {
+          if (result?.sent) {
+            listening = !userPaused;
+            listenButton.textContent = listening ? "STOP LISTENING" : "START LISTENING";
+          }
+        }).catch(() => {});
+      }
+    } else if (!connected && initialized) {
+      startButton.disabled = false;
+      startButton.textContent = "RECONNECT JARVIS";
     }
   }
 
@@ -160,10 +176,14 @@
       const connected = await waitForDaemon(90000);
       if (!connected) throw new Error("Python runtime started, but the JARVIS GUI socket handshake is still offline. Check runtime assets and the local model.");
       initialized = true;
+      listening = !userPaused;
+      const desiredListening = userPaused ? "stop_listening" : "start_listening";
+      await api("plugin:jarvis-voice|sendDaemonControl", {command:desiredListening});
       startButton.textContent = "JARVIS ONLINE";
       startButton.disabled = true;
       listenButton.disabled = false;
-      setVoiceState("standby", "Runtime connected. Start wake-word listening or send a command below.");
+      listenButton.textContent = listening ? "STOP LISTENING" : "START LISTENING";
+      setVoiceState(listening ? "listening" : "standby", listening ? "Wake-word listener is active while JARVIS is in the foreground. Tap Stop to pause it." : "Runtime connected. Wake-word listening is paused.");
     } catch (error) {
       setVoiceState("error", String(error?.message || error));
       startButton.disabled = false;
@@ -180,6 +200,7 @@
       return;
     }
     listening = !listening;
+    userPaused = !listening;
     listenButton.textContent = listening ? "STOP LISTENING" : "START LISTENING";
     setVoiceState(listening ? "listening" : "standby", listening ? 'Wake-word listener enabled. Say "Jarvis" and then your command.' : "Wake-word listener paused.");
   }
@@ -261,6 +282,8 @@
         setVoiceState("starting", "Starting the embedded JARVIS command engine.");
       } else if (state === "stopped") {
         initialized = false;
+        listening = false;
+        userPaused = false;
         setVoiceState("offline", "JARVIS runtime stopped.");
         startButton.disabled = false;
         startButton.textContent = "INITIALIZE JARVIS";
