@@ -95,7 +95,7 @@
   document.body.appendChild(root);
   const settingsPanel = document.createElement("div");
   settingsPanel.className = "settings-panel";
-  settingsPanel.innerHTML = '<section class="settings-card"><h2>JARVIS RUNTIME SETTINGS</h2><p>Local AI model aur Android runtime ki readiness yahan check karein. Pehli baar model download karne ke liye internet chahiye; verified model phone mein save hone ke baad local AI offline chal sakta hai.</p><div id="jarvis-settings-status" class="settings-status">Checking device…</div><div class="primary-row"><button id="jarvis-settings-refresh" class="primary-btn" type="button">REFRESH STATUS</button><button id="jarvis-settings-mic" class="secondary-btn" type="button">ENABLE VOICE</button><button id="jarvis-settings-close" class="secondary-btn" type="button">CLOSE</button></div></section>';
+  settingsPanel.innerHTML = '<section class="settings-card"><h2>JARVIS HYBRID AI BRAIN</h2><p>Offline local AI hamesha fallback rahega. Online provider add karne par JARVIS pehle online model try karega aur failure/no internet par local model par fallback karega. API key sirf private app storage mein save hoti hai; source code ya logs mein nahi.</p><div id="jarvis-settings-status" class="settings-status">Checking device…</div><div style="display:grid;gap:8px;margin-top:14px"><label for="jarvis-provider" style="color:#ffb27a;font-size:11px">ONLINE PROVIDER</label><select id="jarvis-provider" style="padding:11px;border-radius:9px;background:#090d12;color:#eef;border:1px solid #39424d"><option value="groq">Groq</option><option value="gemini">Google Gemini</option><option value="openrouter">OpenRouter</option><option value="custom">Custom OpenAI-compatible API</option></select><label for="jarvis-provider-url" style="color:#ffb27a;font-size:11px">API BASE URL</label><input id="jarvis-provider-url" type="url" value="https://api.groq.com/openai/v1" placeholder="https://.../v1" style="padding:11px;border-radius:9px;background:#090d12;color:#eef;border:1px solid #39424d"><label for="jarvis-provider-model" style="color:#ffb27a;font-size:11px">MODEL NAME</label><input id="jarvis-provider-model" value="llama-3.3-70b-versatile" placeholder="provider model id" style="padding:11px;border-radius:9px;background:#090d12;color:#eef;border:1px solid #39424d"><label for="jarvis-provider-key" style="color:#ffb27a;font-size:11px">API KEY (never shown again)</label><input id="jarvis-provider-key" type="password" autocomplete="off" placeholder="Paste your API key" style="padding:11px;border-radius:9px;background:#090d12;color:#eef;border:1px solid #39424d"><button id="jarvis-provider-save" class="primary-btn" type="button">SAVE ONLINE PROVIDER</button><div id="jarvis-provider-result" class="status-line">Cloud API keys are not included; add your own key to enable online inference.</div></div><div class="primary-row"><button id="jarvis-settings-refresh" class="primary-btn" type="button">REFRESH STATUS</button><button id="jarvis-settings-mic" class="secondary-btn" type="button">ENABLE VOICE</button><button id="jarvis-settings-close" class="secondary-btn" type="button">CLOSE</button></div></section>';
   root.appendChild(settingsPanel);
 
   const $ = selector => root.querySelector(selector);
@@ -131,6 +131,8 @@
         "Microphone permission: " + (data.microphonePermission ? "granted" : "not granted"),
         "Android speech service: " + (data.speechServiceAvailable ? "available (offline language pack depends on Android speech settings)" : "unavailable — text commands still work"),
         "Text-to-Speech: " + (data.textToSpeechReady ? "ready" : "initializing / unavailable"),
+        "AI mode: online providers first, local Qwen fallback",
+        "Online provider credentials: stored privately in app config; add/change above",
         "App-private runtime: " + (data.runtimeDirectory || "not created")
       ].join("\n");
     } catch (error) {
@@ -141,6 +143,42 @@
   $("#jarvis-settings-open").addEventListener("click", () => { settingsPanelElement.style.display = "flex"; refreshRuntimeSettings(); });
   $("#jarvis-settings-close").addEventListener("click", () => { settingsPanelElement.style.display = "none"; });
   $("#jarvis-settings-refresh").addEventListener("click", refreshRuntimeSettings);
+  const providerPresets = {
+    groq: {url:"https://api.groq.com/openai/v1",model:"llama-3.3-70b-versatile"},
+    gemini: {url:"https://generativelanguage.googleapis.com/v1beta/openai",model:"gemini-2.5-flash"},
+    openrouter: {url:"https://openrouter.ai/api/v1",model:"openai/gpt-oss-120b"},
+    custom: {url:"https://your-provider.example/v1",model:"your-model-id"}
+  };
+  $("#jarvis-provider").addEventListener("change", () => {
+    const preset = providerPresets[$("#jarvis-provider").value];
+    $("#jarvis-provider-url").value = preset.url;
+    $("#jarvis-provider-model").value = preset.model;
+  });
+  $("#jarvis-provider-save").addEventListener("click", async () => {
+    const button = $("#jarvis-provider-save");
+    const resultBox = $("#jarvis-provider-result");
+    const provider = $("#jarvis-provider").value;
+    const baseUrl = $("#jarvis-provider-url").value.trim();
+    const model = $("#jarvis-provider-model").value.trim();
+    const apiKey = $("#jarvis-provider-key").value.trim();
+    if (!baseUrl || !model || !apiKey) {
+      resultBox.textContent = "Provider URL, model name and API key are required.";
+      return;
+    }
+    button.disabled = true;
+    resultBox.textContent = "Saving provider securely…";
+    try {
+      const result = await api("plugin:jarvis-voice|save_online_provider", {provider,baseUrl,model,apiKey});
+      if (!result?.saved) throw new Error(result?.reason || "Provider could not be saved");
+      $("#jarvis-provider-key").value = "";
+      resultBox.textContent = result.message || "Saved. Restart JARVIS to apply.";
+      refreshRuntimeSettings();
+    } catch (error) {
+      resultBox.textContent = "Save failed: " + String(error?.message || error);
+    } finally {
+      button.disabled = false;
+    }
+  });
   $("#jarvis-settings-mic").addEventListener("click", async () => {
     const button = $("#jarvis-settings-mic");
     button.disabled = true;
