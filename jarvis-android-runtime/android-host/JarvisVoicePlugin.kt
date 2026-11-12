@@ -270,18 +270,30 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
     }
 
 
+    private fun readBackendStatus(): JSONObject {
+        val statusFile = java.io.File(activity.filesDir, "jarvis-runtime/logs/backend-status.json")
+        return try {
+            if (statusFile.isFile) JSONObject(statusFile.readText()) else JSONObject().put("state", "not-started")
+        } catch (error: Throwable) {
+            JSONObject().put("state", "unreadable").put("error", error.message ?: error.javaClass.simpleName)
+        }
+    }
+
     @Command
     fun getDaemonStatus(invoke: Invoke) {
         val statusJson = try {
             if (Python.isStarted()) {
-                Python.getInstance().getModule("android_daemon").callAttr("status_json").toString()
+                JSONObject(Python.getInstance().getModule("android_daemon").callAttr("status_json").toString())
+                    .put("backend", readBackendStatus()).toString()
             } else {
                 JSONObject().put("state", "offline").put("connected", false)
-                    .put("last_error", "Embedded Python runtime is not started").toString()
+                    .put("last_error", "Embedded Python runtime is not started")
+                    .put("backend", readBackendStatus()).toString()
             }
         } catch (error: Throwable) {
             JSONObject().put("state", "offline").put("connected", false)
-                .put("last_error", error.message ?: error.javaClass.simpleName).toString()
+                .put("last_error", error.message ?: error.javaClass.simpleName)
+                .put("backend", readBackendStatus()).toString()
         }
         invoke.resolve(JSObject().apply { put("statusJson", statusJson) })
     }
@@ -364,6 +376,10 @@ class JarvisVoicePlugin(private val activity: Activity) : Plugin(activity) {
             put("speechServiceAvailable", SpeechRecognizer.isRecognitionAvailable(activity))
             put("textToSpeechReady", bridge?.isSpeechReady() == true)
             put("runtimeDirectory", root.absolutePath)
+            put("backendStatus", readBackendStatus().toString())
+            val providerFile = java.io.File(root, "config/providers.json")
+            val providerConfig = try { if (providerFile.isFile) JSONObject(providerFile.readText()) else JSONObject() } catch (_: Throwable) { JSONObject() }
+            put("onlineProviderCount", providerConfig.optJSONArray("providers")?.length() ?: 0)
         }
         invoke.resolve(JSObject().apply { put("diagnosticsJson", diagnostics.toString()) })
     }
