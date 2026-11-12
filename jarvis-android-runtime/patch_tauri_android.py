@@ -103,3 +103,27 @@ if '#[cfg(target_os = "android")]' not in ipc:
 ''' + ipc[pos:]
     ipc_path.write_text(ipc)
 print("JARVIS Android compatibility patch applied")
+
+# Android voice permission prompts are Tauri plugin commands too. The Android
+# @TauriPlugin annotation declares OS permissions, but the frontend still needs
+# explicit ACL access to check/request those permissions at runtime.
+import json
+
+project_root = Path(sys.argv[1])
+capability_dir = project_root / "src-tauri" / "capabilities"
+capability_dir.mkdir(parents=True, exist_ok=True)
+voice_capability = capability_dir / "jarvis-android-voice.json"
+capability = {
+    "$schema": "../gen/schemas/mobile-schema.json",
+    "identifier": "jarvis-android-voice",
+    "description": "Android-only JARVIS voice permission prompts",
+    "windows": ["main"],
+    "platforms": ["android"],
+    "permissions": [
+        "core:default",
+        "jarvis-voice:allow-check-permissions",
+        "jarvis-voice:allow-request-permissions",
+    ],
+}
+voice_capability.write_text(json.dumps(capability, indent=2) + "\\n", encoding="utf-8")
+print("Added Android-only JARVIS voice permission ACL capability")
