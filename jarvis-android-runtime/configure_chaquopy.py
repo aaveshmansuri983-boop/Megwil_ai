@@ -304,12 +304,12 @@ chaquopy {
     permission_file.write_text("""[[permission]]
 identifier = "allow-check-permissions"
 description = "Allows checking the Android microphone permission state."
-commands.allow = ["checkPermissions"]
+commands.allow = ["check_permissions"]
 
 [[permission]]
 identifier = "allow-request-permissions"
 description = "Allows requesting the Android microphone permission."
-commands.allow = ["requestPermissions"]
+commands.allow = ["request_permissions"]
 
 [[permission]]
 identifier = "allow-initialize"
