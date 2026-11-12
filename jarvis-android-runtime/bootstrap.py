@@ -87,7 +87,7 @@ def _write_backend_status(root: Path, state: str, **details: object) -> None:
     target = logs / "backend-status.json"
     temporary = target.with_suffix(".tmp")
     payload = {"state": state, "updated_at": __import__("time").time(), **details}
-    temporary.write_text(json.dumps(payload, indent=2, default=str) + "\\n")
+    temporary.write_text(json.dumps(payload, indent=2, default=str) + "\n")
     temporary.replace(target)
 
 
