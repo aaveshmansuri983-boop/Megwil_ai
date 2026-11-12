@@ -1,0 +1,89 @@
+name: Build JARVIS V3 Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - jarvis-v3-selected-orb
+    paths:
+      - 'jarvis-app-android-v3.zip'
+      - '.github/workflows/build_jarvis_v3_android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout JARVIS V3 source repository
+        uses: actions/checkout@v4
+
+      - name: Extract the actual JARVIS V3 source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s jarvis-app-android-v3.zip
+          mkdir -p "$RUNNER_TEMP/jarvis-v3"
+          unzip -q jarvis-app-android-v3.zip -d "$RUNNER_TEMP/jarvis-v3"
+          test -f "$RUNNER_TEMP/jarvis-v3/jarvis-app-0.1.0/src-tauri/Cargo.toml"
+          echo "JARVIS_DIR=$RUNNER_TEMP/jarvis-v3/jarvis-app-0.1.0" >> "$GITHUB_ENV"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Validate JARVIS V3 project
+        working-directory: ${{ env.JARVIS_DIR }}
+        run: python3 scripts/validate_tauri_project.py
+
+      - name: Initialize Android project
+        working-directory: ${{ env.JARVIS_DIR }}
+        run: cargo tauri android init
+
+      - name: Add Android runtime permissions
+        working-directory: ${{ env.JARVIS_DIR }}
+        run: python3 scripts/patch_android_manifest.py
+
+      - name: Build installable APK
+        working-directory: ${{ env.JARVIS_DIR }}
+        run: cargo tauri android build --apk
+
+      - name: Collect APK and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find "$JARVIS_DIR/src-tauri/gen/android/app/build/outputs/apk" -type f -name '*.apk' -exec cp {} dist/ \;
+          test -n "$(find dist -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+
+      - name: Upload direct APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-V3-Android-APK
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
