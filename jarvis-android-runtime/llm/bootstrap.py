@@ -68,7 +68,12 @@ def configure_provider() -> Path:
             data = json.loads(providers_file.read_text())
         except (ValueError, OSError):
             pass
-    providers = data.setdefault("providers", [])
+    if not isinstance(data, dict):
+        data = {}
+    providers = data.get("providers")
+    if not isinstance(providers, list):
+        providers = []
+        data["providers"] = providers
     entry = {
         "name": "android-local-llama",
         "type": "api",
